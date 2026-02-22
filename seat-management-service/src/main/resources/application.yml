@@ -1,0 +1,127 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: seat-management-service
+  
+  datasource:
+    url: jdbc:h2:file:./data/seat-management-db;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+        use_sql_comments: true
+  
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+      jedis:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+  
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        acknowledge-mode: auto
+        retry:
+          enabled: true
+          initial-interval: 1000
+          max-attempts: 3
+          multiplier: 2
+  
+  cache:
+    type: redis
+    redis:
+      time-to-live: 30000  # 30 seconds for seat map cache
+  
+  # Flyway Configuration
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    repair-on-migrate: true
+    clean-disabled: false
+    locations: classpath:db/migration
+
+# Rate Limiting Configuration
+bucket4j:
+  enabled: true
+  filters:
+    - cache-name: rate-limit-buckets
+      url: /api/seats.*
+      rate-limits:
+        - bandwidths:
+            - capacity: 50
+              time: 2
+              unit: seconds
+          cache-key: getRemoteAddr()
+
+# Seat Hold Configuration
+seat:
+  hold:
+    ttl-seconds: 120  # 2 minutes
+    cleanup-interval-seconds: 10
+
+# Waitlist Configuration
+waitlist:
+  processor:
+    interval-seconds: 5
+    batch-size: 10
+
+# Lock Configuration
+lock:
+  acquisition:
+    timeout-seconds: 5
+  lease:
+    time-seconds: 30
+
+# SpringDoc OpenAPI Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.skyhigh.seat: DEBUG
+    org.springframework.cache: ERROR
+    org.springframework.data.redis: ERROR
+    org.springframework.amqp: ERROR
+    org.hibernate.SQL: ERROR
+    org.hibernate.type.descriptor.sql.BasicBinder: ERROR
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"

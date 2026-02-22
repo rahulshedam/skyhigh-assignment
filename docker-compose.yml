@@ -1,0 +1,205 @@
+version: '3.8'
+
+services:
+  # Infrastructure Services
+  redis:
+    image: redis:7-alpine
+    container_name: skyhigh-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - skyhigh-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: skyhigh-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - skyhigh-network
+
+
+  # Backend Microservices
+  seat-management:
+    build:
+      context: .
+      dockerfile: seat-management-service/Dockerfile
+    container_name: seat-management-service
+    ports:
+      - "8091:8091"
+    restart: on-failure
+    environment:
+      SERVER_PORT: 8091
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:seat-management-db;DB_CLOSE_DELAY=-1
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: "false"
+      SPRING_FLYWAY_REPAIR_ON_MIGRATE: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8091/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - skyhigh-network
+
+  checkin-service:
+    build:
+      context: .
+      dockerfile: checkin-service/Dockerfile
+    container_name: checkin-service
+    ports:
+      - "8082:8082"
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:checkin-db;DB_CLOSE_DELAY=-1
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      # RestTemplate service URLs (checkin uses these, not OpenFeign)
+      SERVICES_SEAT_MANAGEMENT_URL: http://seat-management:8091
+      SERVICES_BAGGAGE_URL: http://baggage-service:8083
+      SERVICES_PAYMENT_URL: http://payment-service:8084
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      seat-management:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - skyhigh-network
+
+  baggage-service:
+    build:
+      context: .
+      dockerfile: baggage-service/Dockerfile
+    container_name: baggage-service
+    ports:
+      - "8083:8083"
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:baggage-db;DB_CLOSE_DELAY=-1
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+    depends_on:
+
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - skyhigh-network
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
+    container_name: payment-service
+    ports:
+      - "8084:8084"
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:payment-db;DB_CLOSE_DELAY=-1
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+    depends_on:
+
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - skyhigh-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: notification-service
+    ports:
+      - "8085:8085"
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:notification-db;DB_CLOSE_DELAY=-1
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8085/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - skyhigh-network
+
+
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: skyhigh-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - seat-management
+      - checkin-service
+      - baggage-service
+      - payment-service
+
+    networks:
+      - skyhigh-network
+
+volumes:
+  redis-data:
+  rabbitmq-data:
+
+
+networks:
+  skyhigh-network:
+    driver: bridge
