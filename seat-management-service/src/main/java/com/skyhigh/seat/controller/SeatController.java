@@ -49,11 +49,14 @@ public class SeatController {
     }
 
     @DeleteMapping("/{seatId}/cancel")
-    @Operation(summary = "Cancel seat assignment", description = "Cancel a confirmed seat assignment")
+    @Operation(summary = "Cancel seat assignment", description = "Cancel a confirmed seat assignment or release a hold. Requires passengerId.")
     public ResponseEntity<Void> cancelSeat(
             @PathVariable Long seatId,
-            @RequestParam String passengerId) {
+            @RequestParam(required = true, name = "passengerId") String passengerId) {
 
+        if (passengerId == null || passengerId.isBlank()) {
+            throw new IllegalArgumentException("passengerId is required and must not be blank");
+        }
         log.info("Cancel seat request for seat {} by passenger {}", seatId, passengerId);
         seatService.cancelSeat(seatId, passengerId);
         return ResponseEntity.noContent().build();

@@ -1,6 +1,7 @@
 package com.skyhigh.seat.service;
 
 import com.skyhigh.seat.exception.SeatNotFoundException;
+import com.skyhigh.seat.exception.WaitlistNotFoundException;
 import com.skyhigh.seat.model.dto.WaitlistJoinRequest;
 import com.skyhigh.seat.model.entity.Seat;
 import com.skyhigh.seat.model.entity.SeatAssignment;
@@ -232,7 +233,7 @@ public class WaitlistService {
     @Transactional
     public void removeFromWaitlist(Long waitlistId) {
         Waitlist waitlist = waitlistRepository.findById(waitlistId)
-                .orElseThrow(() -> new RuntimeException("Waitlist entry not found: " + waitlistId));
+                .orElseThrow(() -> new WaitlistNotFoundException(waitlistId));
 
         waitlist.setStatus(WaitlistStatus.EXPIRED);
         waitlistRepository.save(waitlist);

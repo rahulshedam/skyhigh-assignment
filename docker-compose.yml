@@ -1,10 +1,9 @@
-version: '3.8'
-
 services:
   # Infrastructure Services
   redis:
     image: redis:7-alpine
     container_name: skyhigh-redis
+    restart: on-failure
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
@@ -21,6 +20,7 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: skyhigh-rabbitmq
+    restart: on-failure
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -184,6 +184,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: skyhigh-frontend
+    restart: on-failure
     ports:
       - "3000:80"
     depends_on:

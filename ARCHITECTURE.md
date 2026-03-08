@@ -133,8 +133,9 @@ SkyHigh Core is a high-performance, distributed backend system built using **mic
 **Responsibilities**:
 - Manage seat lifecycle (AVAILABLE → HELD → CONFIRMED → CANCELLED)
 - Handle seat hold reservations with 120-second TTL
-- Manage waitlist queue (FIFO)
-- Automatically assign seats to waitlisted passengers
+- Manage waitlist queue (FIFO); join per seat, get by passenger, remove; automatic assignment when a seat is released or expired
+- **Fair allocation:** Currently FIFO (first-in-first-out). Future: priority/tier-based waitlist not implemented
+- Automatically assign seats to waitlisted passengers via WaitlistProcessorScheduler (every 5 seconds)
 - Provide seat map data with caching
 - Implement distributed locking for concurrent seat access
 - Publish events: `SeatHeldEvent`, `SeatConfirmedEvent`, `SeatReleasedEvent`, `WaitlistAssignedEvent`
@@ -158,6 +159,7 @@ SkyHigh Core is a high-performance, distributed backend system built using **mic
 - Handle check-in cancellations
 - Maintain check-in history
 - Subscribe to: `SeatConfirmedEvent`, `PaymentCompletedEvent`
+- **Payment pause/resume:** When excess baggage is required, check-in pauses at `WAITING_FOR_PAYMENT`; the client pays via Payment Service and resumes by calling complete with the payment reference (see WORKFLOW_DESIGN.md).
 
 **Key APIs**:
 - `POST /api/checkin/start` - Start check-in process
@@ -213,6 +215,8 @@ SkyHigh Core is a high-performance, distributed backend system built using **mic
 - Waitlist assignment
 - Payment success/failure
 - Seat hold expiry warning
+
+**Event-driven notifications (implemented):** Events published: `seat.held`, `seat.confirmed`, `seat.released`, `waitlist.assigned`, `payment.success` / `payment.failure`, `checkin.completed`. Notification Service subscribes and sends email/template notifications.
 
 ---
 
@@ -726,7 +730,16 @@ public class SeatExpiryScheduler {
 }
 ```
 
-### 10.3 Timer Accuracy
+### 10.3 Seat Hold Expiry – Fail-Safe
+
+Expiry is enforced in two ways so that seat release is guaranteed even if the scheduler is delayed:
+
+1. **Scheduler (batch release):** `SeatExpiryScheduler` runs every 10 seconds and releases all held seats whose `hold_expiry_time` has passed (batch size limit 100). Released seats are published for waitlist assignment.
+2. **Confirm-time check (authoritative):** Before confirming a seat, `SeatService.confirmSeat` checks whether the hold has expired (`assignment.getExpiresAt()` vs current time). If expired, it rejects with 409 Conflict. Thus even if a scheduler run is delayed, a confirm after the TTL always fails and the seat cannot be confirmed on an expired hold.
+
+Optional: batch size and run interval (e.g. 10s) keep the backlog of expired holds bounded.
+
+### 10.4 Timer Accuracy
 
 - **Query Frequency**: Every 10 seconds
 - **Expected Expiry**: 120 seconds ± 10 seconds
@@ -787,24 +800,50 @@ public class RateLimitFilter implements Filter {
 
 *Note: Abuse detection with blocking (e.g. 5-minute block on threshold exceed) is not implemented in the current scope.*
 
+**Audit of rate-limit events (abuse detection):** When the rate limit is exceeded, a WARN is logged and an audit record is written to the `rate_limit_audit` table (client IP, path, timestamp). This supports abuse analysis and monitoring; admins can query repeated violations per IP. The Seat Management Service implements this via `RateLimitFilter` and `RateLimitAuditService`.
+
+### 11.4 Waitlist Management (Advanced Feature)
+
+Waitlist allows passengers to queue for a specific seat when it is not available:
+
+- **Join:** `POST /api/seats/{seatId}/waitlist` – adds passenger to the waitlist for that seat (FIFO ordering).
+- **Status:** `GET /api/seats/waitlist/{passengerId}` – returns all waitlist entries for the passenger (status WAITING, ASSIGNED, etc.).
+- **Remove:** `DELETE /api/seats/waitlist/{waitlistId}` – removes the entry; returns 404 if the waitlist entry does not exist.
+
+When a seat is released (cancel or hold expiry), the `WaitlistProcessorScheduler` runs periodically and assigns the seat to the next waitlisted passenger (FIFO). A `WaitlistAssignedEvent` is published for notifications. This is documented in API-SPECIFICATION.md §1.4 and in the Seat Management Service description in §4.2.1.
+
 ---
 
 ## 12. Security Architecture
 
-### 12.1 Authentication & Authorization
+### 12.1 API Request Validations and Error Handling
+
+All APIs enforce request validations and return consistent error responses:
+
+- **Validation:** Request bodies use `@Valid` with Bean Validation (e.g. `@NotBlank`, `@NotNull`, `@Positive`). Required query/path parameters are validated (e.g. `passengerId` on seat cancel). Invalid or missing data returns **400 Bad Request** with a body containing `timestamp`, `status`, `error`, `message`, and optionally `errors` (field-level validation details).
+- **HTTP status codes:** 400 (validation/invalid state), 404 (resource not found), 409 (conflict, e.g. seat already held or hold expired), 429 (rate limit exceeded), 503 (downstream unavailable). See API-SPECIFICATION.md "Error Responses".
+- **Edge cases:** Missing request parameters, type mismatch (e.g. non-numeric seatId), and business rule violations are mapped to the appropriate status and a consistent JSON error shape across Seat, Check-in, and shared handlers.
+
+### 12.2 Threat Model
+
+- **Current scope:** Development/demo. No authentication; endpoints are open. Rate limiting on Seat Management reduces abuse and simple bot traffic.
+- **Threats not mitigated:** Unauthorized access, impersonation, no RBAC; sensitive operations are not gated by identity.
+- **Recommended for production:** JWT-based authentication, RBAC (PASSENGER, STAFF, ADMIN), HTTPS, audit logging for sensitive actions, and threat hardening (e.g. input sanitization, secure headers).
+
+### 12.3 Authentication & Authorization
 
 **Current Implementation**: Simplified for development/testing. All endpoints use `permitAll()` with CSRF disabled. No JWT or authentication filter.
 
 *JWT and RBAC (as described below) are recommended for production but not implemented in the current scope.*
 
-### 12.2 Planned Role-Based Access Control (RBAC)
+### 12.4 Planned Role-Based Access Control (RBAC)
 
 **Roles** (for future implementation):
 - `PASSENGER`: Can book seats, check-in
 - `ADMIN`: Can view all data, override operations
 - `STAFF`: Can assist passengers, view check-in status
 
-### 12.3 Data Protection
+### 12.5 Data Protection
 
 - **In Transit**: TLS 1.3 (HTTPS)
 - **At Rest**: H2 database encryption (optional)
@@ -907,7 +946,12 @@ docker-compose up --scale seat-management=3 --scale checkin-service=2
 - RabbitMQ connectivity
 - Disk space
 
-### 14.4 Distributed Tracing
+### 14.4 Observability – Audit Tables and Events
+
+- **Audit tables:** `seat_history` (seat state changes), `checkin_history` (check-in state transitions). Optional: `rate_limit_audit` for rate-limit violations (see Rate Limiting).
+- **Events emitted:** `seat.held`, `seat.confirmed`, `seat.released`, `waitlist.assigned`, `payment.success`, `payment.failure`, `checkin.completed` — for monitoring and notification consumption.
+
+### 14.5 Distributed Tracing
 
 **Implementation**: Spring Cloud Sleuth + Zipkin (optional)
 
@@ -922,9 +966,18 @@ Request arrives → Trace ID generated → Propagated via HTTP headers
 
 ---
 
-## 15. Deployment Architecture
+## 15. Design Decisions and Trade-offs
 
-### 15.1 Docker Compose Architecture
+- **FIFO waitlist:** Simplicity and fairness; first-come-first-served. Alternative (priority/tier) deferred.
+- **In-memory rate limit:** Simple integration; trade-off is that limits are per instance (not shared across replicas). For multi-instance, use Redis-backed rate limit.
+- **Confirm-time check for hold expiry:** Fail-safe so that even if the scheduler is delayed, a confirm after TTL always fails; avoids confirming on an expired hold.
+- **Check-in orchestrates payment flow:** Single place for pause/resume (WAITING_FOR_PAYMENT) and completion; avoids scattered payment logic across clients.
+
+---
+
+## 16. Deployment Architecture
+
+### 16.1 Docker Compose Architecture
 
 ```yaml
 version: '3.8'
@@ -998,7 +1051,7 @@ networks:
   skyhigh-network:
 ```
 
-### 15.2 Deployment Diagram
+### 16.2 Deployment Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1034,7 +1087,7 @@ networks:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 15.3 Network Communication
+### 16.3 Network Communication
 
 **Internal Service Discovery**:
 - Services communicate using container names as hostnames

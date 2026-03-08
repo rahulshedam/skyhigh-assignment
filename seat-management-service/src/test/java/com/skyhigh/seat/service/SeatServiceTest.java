@@ -1,6 +1,7 @@
 package com.skyhigh.seat.service;
 
 import com.skyhigh.seat.exception.SeatAlreadyHeldException;
+import com.skyhigh.seat.exception.SeatHoldExpiredException;
 import com.skyhigh.seat.exception.SeatNotFoundException;
 import com.skyhigh.seat.exception.SeatUnavailableException;
 import com.skyhigh.seat.model.dto.SeatConfirmRequest;
@@ -115,6 +116,21 @@ class SeatServiceTest {
     }
 
     @Test
+    void holdSeat_ConcurrentAttemptForSameSeat_SecondGetsConflict() {
+        // Simulate two concurrent hold attempts: first acquires lock and succeeds, second gets null lock (seat already held)
+        when(lockService.acquireLock(anyString())).thenReturn(lock).thenReturn(null);
+        when(seatRepository.findById(1L)).thenReturn(Optional.of(testSeat));
+        when(seatRepository.save(any(Seat.class))).thenReturn(testSeat);
+        when(seatAssignmentRepository.save(any(SeatAssignment.class))).thenAnswer(i -> i.getArgument(0));
+
+        SeatResponse first = seatService.holdSeat(1L, holdRequest);
+        assertNotNull(first);
+        assertEquals(1L, first.getId());
+
+        assertThrows(SeatAlreadyHeldException.class, () -> seatService.holdSeat(1L, holdRequest));
+    }
+
+    @Test
     void holdSeat_SeatNotFound_ThrowsException() {
         // Arrange
         when(lockService.acquireLock(anyString())).thenReturn(lock);
@@ -219,7 +235,7 @@ class SeatServiceTest {
                 .thenReturn(Optional.of(assignment));
 
         // Act & Assert
-        assertThrows(SeatUnavailableException.class, () -> seatService.confirmSeat(1L, confirmRequest));
+        assertThrows(SeatHoldExpiredException.class, () -> seatService.confirmSeat(1L, confirmRequest));
         verify(lockService).releaseLock(lock);
     }
 

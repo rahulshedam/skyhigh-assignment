@@ -1,6 +1,6 @@
 # SkyHigh Core – Digital Check-In System
 
-A high-performance, microservices-based digital check-in platform for SkyHigh Airlines. The system handles seat selection, baggage validation, payment processing, and notifications with conflict-free seat assignment, distributed locking, and event-driven architecture.
+A high-performance, microservices-based digital check-in platform for SkyHigh Airlines. The system handles seat selection, baggage validation, payment processing, and notifications with conflict-free seat assignment, distributed locking, and event-driven architecture. *This run uses open endpoints for demo; production would require JWT/RBAC and threat hardening (see ARCHITECTURE.md).*
 
 ## Table of Contents
 
@@ -274,7 +274,7 @@ Background processing is built into the services; there are no separate worker p
 | **Seat Expiry Scheduler** | `@Scheduled` | 10 seconds | Releases held seats that have exceeded 120 seconds |
 | **Waitlist Processor Scheduler** | `@Scheduled` | 5 seconds | Assigns freed seats to the next waitlisted passengers (FIFO) |
 
-These run automatically when the Seat Management Service is up.
+These run automatically when the Seat Management Service is up. **Seat hold expiry – fail-safe:** Release is guaranteed by (1) the scheduler batch run and (2) a confirm-time check: if a client tries to confirm after the hold TTL, the request is rejected (409) even if the scheduler run was delayed.
 
 ### Notification Service
 
@@ -286,6 +286,27 @@ These run automatically when the Seat Management Service is up.
 These run as part of the Notification Service; no extra process is needed.
 
 **Requirement:** RabbitMQ must be running for the notification listeners to work.
+
+---
+
+## Configuration and Operation of Advanced Features
+
+### Waitlist
+
+- **Join:** `POST /api/seats/{seatId}/waitlist` with `passengerId`, `bookingReference`. Assignment is automatic when the seat becomes available (released or expired).
+- **Status:** `GET /api/seats/waitlist/{passengerId}` returns all waitlist entries for the passenger.
+- **Remove:** `DELETE /api/seats/waitlist/{waitlistId}`.
+- Scheduler interval: WaitlistProcessorScheduler runs every 5 seconds (configurable via Spring scheduling if needed).
+
+### Abuse detection / rate limiting
+
+- **Where:** Seat Management Service only (all `/api/seats/*` and related endpoints).
+- **Limit:** 50 requests per 2 seconds per IP (Bucket4j). Response: HTTP 429 Too Many Requests.
+- **Observation:** Rate-limit violations are logged (WARN); audit records can be written to `rate_limit_audit` (see ARCHITECTURE.md). Supports abuse/bot detection analysis.
+
+### Logging and observability
+
+- **Logged:** Rate-limit violations, seat state changes (seat_history), check-in state transitions (checkin_history). See ARCHITECTURE.md for audit tables and emitted events (seat.held, seat.confirmed, seat.released, waitlist.assigned, payment.success/failure, checkin.completed).
 
 ---
 

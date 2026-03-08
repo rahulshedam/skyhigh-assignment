@@ -3,12 +3,14 @@ package com.skyhigh.checkin.client;
 import com.skyhigh.checkin.client.dto.SeatConfirmRequest;
 import com.skyhigh.checkin.client.dto.SeatHoldRequest;
 import com.skyhigh.checkin.client.dto.SeatResponse;
+import com.skyhigh.checkin.exception.CheckInConflictException;
 import com.skyhigh.checkin.exception.ServiceUnavailableException;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -35,9 +37,15 @@ public class SeatManagementClient {
         log.info("Holding seat {} for passenger {}", seatId, request.passengerId());
 
         String url = seatServiceUrl + "/api/seats/" + seatId + "/hold";
-        ResponseEntity<SeatResponse> response = restTemplate.postForEntity(url, request, SeatResponse.class);
-
-        return response.getBody();
+        try {
+            ResponseEntity<SeatResponse> response = restTemplate.postForEntity(url, request, SeatResponse.class);
+            return response.getBody();
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode().value() == 409 || e.getStatusCode().value() == 400) {
+                throw new CheckInConflictException(extractMessage(e), e);
+            }
+            throw e;
+        }
     }
 
     SeatResponse holdSeatFallback(Long seatId, SeatHoldRequest request, Exception e) {
@@ -53,9 +61,15 @@ public class SeatManagementClient {
         log.info("Confirming seat {} for passenger {}", seatId, request.passengerId());
 
         String url = seatServiceUrl + "/api/seats/" + seatId + "/confirm";
-        ResponseEntity<SeatResponse> response = restTemplate.postForEntity(url, request, SeatResponse.class);
-
-        return response.getBody();
+        try {
+            ResponseEntity<SeatResponse> response = restTemplate.postForEntity(url, request, SeatResponse.class);
+            return response.getBody();
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode().value() == 409 || e.getStatusCode().value() == 400) {
+                throw new CheckInConflictException(extractMessage(e), e);
+            }
+            throw e;
+        }
     }
 
     SeatResponse confirmSeatFallback(Long seatId, SeatConfirmRequest request, Exception e) {
@@ -77,5 +91,20 @@ public class SeatManagementClient {
     private void cancelSeatFallback(Long seatId, String passengerId, Exception e) {
         log.error("Seat Management Service unavailable for cancelSeat: {}", e.getMessage());
         // Don't throw exception for cancel - best effort
+    }
+
+    private String extractMessage(HttpClientErrorException e) {
+        String body = e.getResponseBodyAsString();
+        if (body != null && body.contains("\"message\"")) {
+            try {
+                int start = body.indexOf("\"message\"") + 11;
+                int end = body.indexOf("\"", start);
+                if (end > start) {
+                    return body.substring(start, end);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return e.getMessage() != null ? e.getMessage() : "Seat conflict or hold expired";
     }
 }

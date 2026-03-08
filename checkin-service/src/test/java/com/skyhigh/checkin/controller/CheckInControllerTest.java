@@ -1,6 +1,7 @@
 package com.skyhigh.checkin.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.skyhigh.checkin.exception.CheckInConflictException;
 import com.skyhigh.checkin.model.dto.CheckInBaggageRequest;
 import com.skyhigh.checkin.model.dto.CheckInCompleteRequest;
 import com.skyhigh.checkin.model.dto.CheckInResponse;
@@ -12,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -26,6 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(CheckInController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@Import(com.skyhigh.checkin.exception.GlobalExceptionHandler.class)
 class CheckInControllerTest {
 
         @Autowired
@@ -105,5 +108,20 @@ class CheckInControllerTest {
                                 .andExpect(status().isNoContent());
 
                 verify(checkInService).cancelCheckIn(checkInId);
+        }
+
+        @Test
+        void completeCheckIn_whenSeatConflictOrHoldExpired_returns409() throws Exception {
+                Long checkInId = 1L;
+                CheckInCompleteRequest request = new CheckInCompleteRequest("PAY123");
+
+                when(checkInService.completeCheckIn(eq(checkInId), eq("PAY123")))
+                                .thenThrow(new CheckInConflictException("Seat hold has expired"));
+
+                mockMvc.perform(post("/api/checkin/{id}/complete", checkInId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(request)))
+                                .andExpect(status().isConflict())
+                                .andExpect(jsonPath("$.message").value("Seat hold has expired"));
         }
 }

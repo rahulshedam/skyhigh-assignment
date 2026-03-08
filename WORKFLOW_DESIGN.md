@@ -162,6 +162,13 @@ SkyHigh Core is a microservices-based digital check-in system. This document des
        │                     │  Publish WaitlistAssignedEvent                │
 ```
 
+### 2.4.1 Cancellation and Waitlist Reassignment
+
+- **Check-in cancel:** Allowed when status is `IN_PROGRESS` or `WAITING_FOR_PAYMENT`. Check-in Service calls Seat Management `DELETE /api/seats/{seatId}/cancel?passengerId=...` to release the hold (or cancel confirmed seat). Check-in status is set to `CANCELLED`. Idempotent if already cancelled.
+- **Seat cancel:** Seat Management releases the hold or cancels the confirmed assignment; requires `passengerId`. After the seat becomes AVAILABLE, the **WaitlistProcessorScheduler** (runs every 5 seconds) assigns it to the next waitlisted passenger (FIFO). Concurrency is handled by seat lock and optimistic locking in Seat Management.
+
+---
+
 ### 2.5 Baggage & Payment Sub-Flow
 
 ```
@@ -187,6 +194,17 @@ SkyHigh Core is a microservices-based digital check-in system. This document des
          │  complete(paymentId)  │                       │
          │  [verifies payment]   │                       │
 ```
+
+### 2.5.1 Payment Pause/Resume Flow
+
+When baggage weight exceeds 25 kg, check-in **pauses** at status `WAITING_FOR_PAYMENT`:
+
+1. **When check-in pauses:** After baggage validation returns excess fee (weight > 25 kg), Check-in Service sets status to `WAITING_FOR_PAYMENT` and stores the excess fee; the seat remains held.
+2. **Allowed actions while paused:** The client may call `GET /api/checkin/{checkinId}` to read status and fee; no other state change until payment is completed.
+3. **Resume:** The client processes payment via Payment Service (`POST /api/payments/process`), then calls `POST /api/checkin/{checkinId}/complete` with the request body `{ "paymentId": "<payment_reference>" }`. Check-in Service records the payment reference, confirms the seat with Seat Management, and sets status to `COMPLETED`.
+4. **Verification:** Payment is processed by Payment Service; Check-in Service only records the payment reference and does not re-validate the payment amount (excess fee was already determined at pause time).
+
+---
 
 ### 2.6 Event-Driven Notification Flow
 

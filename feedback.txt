@@ -1,0 +1,71 @@
+Hi,
+
+Thank you for submitting your Assignment 4 work. Below is a detailed evaluation summary:
+
+Key Strengths / Highlights
+Strong technical execution of core check-in system features, including seat selection and baggage validation.
+
+Correct use of concurrency control mechanisms and internal schedulers for seat holds.
+
+Implementation demonstrates familiarity with appropriate tools and frameworks.
+
+Core workflow functions correctly and is reasonably well-documented.
+
+Critical Problems / Gaps
+AI Collaboration
+
+AI was primarily used for code generation rather than strategic architectural thinking.
+
+No evidence of questioning requirements or exploring trade-offs for advanced senior-level features.
+
+Limited discussion on alternative designs or architectural trade-offs.
+
+Check-In System (Junior + Senior)
+
+Payment pause/resume flow for excess baggage not explicitly implemented or documented.
+
+Seat auto-release on hold expiry is described but not fully guaranteed or documented with fail-safe mechanisms.
+
+Advanced Check-In Architecture (Senior-Level)
+
+No API-level rate limiting for bot detection; audit logging for abuse events is incomplete.
+
+Advanced features such as waitlist management, fair allocation, and event-driven notifications not fully realized.
+
+Implementation (Junior + Senior)
+
+API spec lacks explicit error handling for seat conflicts and hold expiry; proper HTTP status codes (e.g., 409 Conflict) not consistently applied.
+
+Validation on request objects and business rules (e.g., seat availability, baggage limits) is minimal and not fully documented.
+
+Advanced Implementation (Senior-Level)
+
+Cancellation endpoints are not fully implemented or documented; concurrency and waitlist reassignment details missing.
+
+Documentation & Quality
+
+No explicit tests for concurrency conflicts or hold-expiry edge cases found.
+
+System security measures are minimal; JWT/RBAC or threat modeling is absent.
+
+README and architecture docs do not explain configuration or operation of advanced features (waitlist, abuse detection, logging).
+
+Suggested Focus Areas
+Enhance AI collaboration by exploring requirements, trade-offs, and alternative architectural designs.
+
+Implement and document payment pause/resume flows and ensure fail-safe seat auto-release.
+
+Add proper API error handling, HTTP status codes, and request validations for all edge cases.
+
+Complete advanced endpoints: cancellation, waitlist join/status, and rate-limiting mechanisms.
+
+Expand test coverage for concurrency, hold-expiry, and edge cases.
+
+Improve documentation for system security, observability, and advanced features like abuse detection and waitlist management.
+
+Final Recommendation
+Decision: Recommended with reservations
+
+Justification: The developer demonstrates strong capability in implementing core features and using appropriate technologies. However, critical gaps remain in AI collaboration depth, API completeness, error handling, security considerations, and documentation of advanced features. These deficiencies suggest the need for further mentoring before assuming full senior-level architectural ownership.
+
+Please resubmit by 9th Mar.

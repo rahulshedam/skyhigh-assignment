@@ -1,5 +1,6 @@
 package com.skyhigh.seat.filter;
 
+import com.skyhigh.seat.service.RateLimitAuditService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -12,6 +13,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,11 +29,14 @@ class RateLimitFilterTest {
     @Mock
     private FilterChain filterChain;
 
+    @Mock
+    private RateLimitAuditService rateLimitAuditService;
+
     private RateLimitFilter rateLimitFilter;
 
     @BeforeEach
     void setUp() {
-        rateLimitFilter = new RateLimitFilter();
+        rateLimitFilter = new RateLimitFilter(rateLimitAuditService);
     }
 
     @Test
@@ -78,6 +84,7 @@ class RateLimitFilterTest {
         verify(filterChain, times(50)).doFilter(request, response);
         verify(response, atLeastOnce()).setStatus(429);
         verify(response, atLeastOnce()).setContentType("application/json");
+        verify(rateLimitAuditService, atLeastOnce()).recordRateLimitExceeded(eq("127.0.0.1"), any());
     }
 
     @Test

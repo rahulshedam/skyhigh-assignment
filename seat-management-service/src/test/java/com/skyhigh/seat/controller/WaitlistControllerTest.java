@@ -5,6 +5,7 @@ import com.skyhigh.seat.config.SecurityConfig;
 import com.skyhigh.seat.model.dto.WaitlistJoinRequest;
 import com.skyhigh.seat.model.entity.Waitlist;
 import com.skyhigh.seat.model.enums.WaitlistStatus;
+import com.skyhigh.seat.service.RateLimitAuditService;
 import com.skyhigh.seat.service.WaitlistService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,15 +22,13 @@ import java.util.Collections;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import org.junit.jupiter.api.Disabled;
-
-@Disabled
 @WebMvcTest(WaitlistController.class)
-@Import(SecurityConfig.class)
+@Import({ SecurityConfig.class, com.skyhigh.seat.exception.GlobalExceptionHandler.class })
 class WaitlistControllerTest {
 
         @Autowired
@@ -40,6 +39,9 @@ class WaitlistControllerTest {
 
         @MockitoBean
         private WaitlistService waitlistService;
+
+        @MockitoBean
+        private RateLimitAuditService rateLimitAuditService;
 
         private Waitlist waitlist;
         private WaitlistJoinRequest joinRequest;
@@ -110,5 +112,15 @@ class WaitlistControllerTest {
                 // Act & Assert
                 mockMvc.perform(delete("/api/seats/waitlist/1"))
                                 .andExpect(status().isNoContent());
+        }
+
+        @Test
+        void removeFromWaitlist_NotFound_Returns404() throws Exception {
+                doThrow(new com.skyhigh.seat.exception.WaitlistNotFoundException(999L))
+                                .when(waitlistService).removeFromWaitlist(999L);
+
+                mockMvc.perform(delete("/api/seats/waitlist/999"))
+                                .andExpect(status().isNotFound())
+                                .andExpect(jsonPath("$.message").value("Waitlist entry not found: 999"));
         }
 }

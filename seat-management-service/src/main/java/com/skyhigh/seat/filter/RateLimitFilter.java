@@ -1,11 +1,13 @@
 package com.skyhigh.seat.filter;
 
+import com.skyhigh.seat.service.RateLimitAuditService;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.Refill;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -17,12 +19,15 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Rate limiting filter using Bucket4j.
  * Limits requests to 50 per 2 seconds per IP address.
+ * Records rate limit violations in rate_limit_audit for abuse detection analysis.
  */
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class RateLimitFilter implements Filter {
 
     private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final RateLimitAuditService rateLimitAuditService;
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -38,6 +43,7 @@ public class RateLimitFilter implements Filter {
             chain.doFilter(request, response);
         } else {
             log.warn("Rate limit exceeded for IP: {}", clientIp);
+            rateLimitAuditService.recordRateLimitExceeded(clientIp, httpRequest.getRequestURI());
             httpResponse.setStatus(429); // Too Many Requests
             httpResponse.setContentType("application/json");
             httpResponse.getWriter().write(

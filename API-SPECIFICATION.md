@@ -46,7 +46,7 @@ This document defines all REST API endpoints built for the SkyHigh digital check
 | `DELETE` | `/api/seats/{seatId}/cancel` | Cancel a confirmed seat assignment |
 | `GET` | `/api/seats/{seatId}/status` | Get current status of a seat |
 
-**Cancel query param:** `passengerId` (required for cancel)
+**Cancel query param:** `passengerId` (required for cancel). Cancels a confirmed seat or releases a hold; after release, the waitlist processor may assign the seat to the next waitlisted passenger (FIFO).
 
 ---
 
@@ -73,13 +73,24 @@ This document defines all REST API endpoints built for the SkyHigh digital check
 
 ## 3. Check-in Service
 
+The check-in flow supports **pause for payment** when excess baggage is required (weight > 25 kg). In that case the status becomes `WAITING_FOR_PAYMENT`; the client processes payment via the Payment Service and then **resumes** by calling the complete endpoint with the payment reference.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/checkin/start` | Start check-in (seat hold + baggage validation) |
 | `GET` | `/api/checkin/{checkinId}` | Get check-in status |
-| `POST` | `/api/checkin/{checkinId}/complete` | Complete check-in (after payment if required) |
+| `POST` | `/api/checkin/{checkinId}/complete` | Complete check-in (after payment if required); send `paymentId` when resuming from WAITING_FOR_PAYMENT |
 | `POST` | `/api/checkin/{checkinId}/baggage` | Update baggage weight for in-progress check-in |
-| `POST` | `/api/checkin/{checkinId}/cancel` | Cancel an in-progress check-in |
+| `POST` | `/api/checkin/{checkinId}/cancel` | Cancel an in-progress check-in (releases seat hold via Seat Management; idempotent if already cancelled) |
+
+---
+
+## Validation and Business Rules
+
+- **Check-in:** `bookingReference`, `passengerId`, `flightId`, `seatId` required; `baggageWeight` optional, must be ≥ 0 if present. Excess baggage fee applies when weight > 25 kg.
+- **Seat:** For hold and confirm: `passengerId`, `bookingReference` required. For cancel: `passengerId` query param required.
+- **Baggage:** `passengerId`, `bookingReference`, `weight` (positive) required. Excess fee when weight > 25 kg (e.g. (weight − 25) × 10).
+- **Payment:** Required fields depend on service (e.g. amount, passenger/booking reference); see Payment Service API.
 
 ---
 
@@ -108,6 +119,22 @@ This document defines all REST API endpoints built for the SkyHigh digital check
 | `POST` | `/api/notifications/test` | Send a test notification (demo/testing) |
 
 **Notification list query params:** `page` (default 0), `size` (default 10), `sortBy` (default createdAt), `sortDir` (default DESC)
+
+---
+
+## Error Responses
+
+APIs use standard HTTP status codes for errors. The following apply across services where relevant:
+
+| Status | Meaning | When used |
+|--------|----------|-----------|
+| **400 Bad Request** | Validation failed or invalid state transition | Invalid request body (e.g. missing/invalid fields), business rule violation (e.g. cannot update baggage for completed check-in) |
+| **404 Not Found** | Resource not found | Check-in, seat, booking, payment, or baggage reference does not exist |
+| **409 Conflict** | Conflict with current state | Seat already held by another passenger; seat hold expired (confirm after TTL); duplicate or conflicting operation |
+| **429 Too Many Requests** | Rate limit exceeded | Seat Management: more than 50 requests per 2 seconds per IP (see Rate Limiting) |
+| **503 Service Unavailable** | Downstream service unavailable | Check-in when Seat/Baggage/Payment service is unreachable (e.g. circuit breaker open) |
+
+Error response bodies typically include `message`, and optionally `timestamp`, `status`, and `errors` (for validation details).
 
 ---
 

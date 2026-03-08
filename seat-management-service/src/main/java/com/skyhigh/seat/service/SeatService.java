@@ -1,6 +1,7 @@
 package com.skyhigh.seat.service;
 
 import com.skyhigh.seat.exception.SeatAlreadyHeldException;
+import com.skyhigh.seat.exception.SeatHoldExpiredException;
 import com.skyhigh.seat.exception.SeatNotFoundException;
 import com.skyhigh.seat.exception.SeatUnavailableException;
 import com.skyhigh.seat.model.dto.SeatConfirmRequest;
@@ -143,9 +144,9 @@ public class SeatService {
                 throw new SeatUnavailableException("Seat is held by a different passenger");
             }
 
-            // Check if hold has expired
+            // Fail-safe: reject confirm if hold has expired (authoritative check even if scheduler was delayed)
             if (assignment.getExpiresAt().isBefore(LocalDateTime.now())) {
-                throw new SeatUnavailableException("Seat hold has expired");
+                throw new SeatHoldExpiredException("Seat hold has expired");
             }
 
             // Update seat status to CONFIRMED

@@ -252,6 +252,6 @@ class WaitlistServiceTest {
         when(waitlistRepository.findById(1L)).thenReturn(Optional.empty());
 
         // Act & Assert
-        assertThrows(RuntimeException.class, () -> waitlistService.removeFromWaitlist(1L));
+        assertThrows(com.skyhigh.seat.exception.WaitlistNotFoundException.class, () -> waitlistService.removeFromWaitlist(1L));
     }
 }
