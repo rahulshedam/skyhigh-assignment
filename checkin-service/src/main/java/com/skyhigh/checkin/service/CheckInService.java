@@ -6,7 +6,7 @@ import com.skyhigh.checkin.client.SeatManagementClient;
 import com.skyhigh.checkin.client.dto.*;
 import com.skyhigh.checkin.exception.CheckInException;
 import com.skyhigh.checkin.exception.CheckInNotFoundException;
-import com.skyhigh.checkin.model.dto.CheckInCompleteRequest;
+
 import com.skyhigh.checkin.model.dto.CheckInResponse;
 import com.skyhigh.checkin.model.dto.CheckInStartRequest;
 import com.skyhigh.checkin.model.entity.CheckIn;
@@ -55,7 +55,7 @@ public class CheckInService {
      * 4. If baggage > 25kg: pause for payment
      * 5. Else: complete check-in immediately
      */
-    public CheckInResponse startCheckIn(CheckInStartRequest request) {
+    public CheckInResponse startCheckIn(CheckInStartRequest request, String userEmail) {
         log.info("Starting check-in for booking: {}, passenger: {}",
                 request.bookingReference(), request.passengerId());
 
@@ -78,9 +78,10 @@ public class CheckInService {
         try {
             // 2. Hold seat
             log.info("Holding seat {} for check-in {}", request.seatId(), checkIn.getId());
-            SeatResponse seat = seatClient.holdSeat(
+            seatClient.holdSeat(
                     request.seatId(),
-                    new SeatHoldRequest(request.passengerId(), request.bookingReference()));
+                    new SeatHoldRequest(request.passengerId(), request.bookingReference()),
+                    userEmail);
 
             // 3. Validate baggage (only if provided)
             if (baggageWeight > 0) {
@@ -107,7 +108,7 @@ public class CheckInService {
 
                 // 5. Complete check-in immediately (no payment needed)
                 log.info("No excess baggage from start request. Completing check-in immediately.");
-                return completeCheckIn(checkIn.getId(), null);
+                return completeCheckIn(checkIn.getId(), null, userEmail);
             }
 
             // If baggageWeight == 0, stay in IN_PROGRESS
@@ -119,7 +120,7 @@ public class CheckInService {
 
             // Rollback: cancel seat hold
             try {
-                seatClient.cancelSeat(request.seatId(), request.passengerId());
+                seatClient.cancelSeat(request.seatId(), request.passengerId(), userEmail);
             } catch (Exception cancelEx) {
                 log.error("Failed to cancel seat during rollback: {}", cancelEx.getMessage());
             }
@@ -136,7 +137,7 @@ public class CheckInService {
     /**
      * Update baggage weight for existing check-in
      */
-    public CheckInResponse updateBaggage(Long checkinId, Double weight) {
+    public CheckInResponse updateBaggage(Long checkinId, Double weight, String userEmail) {
         log.info("Updating baggage for check-in {}: {} kg", checkinId, weight);
 
         CheckIn checkIn = checkinRepository.findById(checkinId)
@@ -171,13 +172,13 @@ public class CheckInService {
 
         // No payment required
         log.info("No excess baggage. Completing check-in.");
-        return completeCheckIn(checkinId, null);
+        return completeCheckIn(checkinId, null, userEmail);
     }
 
     /**
      * Complete check-in (after payment if required)
      */
-    public CheckInResponse completeCheckIn(Long checkinId, String paymentId) {
+    public CheckInResponse completeCheckIn(Long checkinId, String paymentId, String userEmail) {
         log.info("Completing check-in {}", checkinId);
 
         CheckIn checkIn = checkinRepository.findById(checkinId)
@@ -205,7 +206,8 @@ public class CheckInService {
         log.info("Confirming seat {} for check-in {}", checkIn.getSeatId(), checkinId);
         seatClient.confirmSeat(
                 checkIn.getSeatId(),
-                new SeatConfirmRequest(checkIn.getPassengerId(), checkIn.getBookingReference()));
+                new SeatConfirmRequest(checkIn.getPassengerId(), checkIn.getBookingReference()),
+                userEmail);
 
         // Update status
         checkIn.setStatus(CheckInStatus.COMPLETED);
@@ -222,7 +224,7 @@ public class CheckInService {
     /**
      * Cancel check-in
      */
-    public void cancelCheckIn(Long checkinId) {
+    public void cancelCheckIn(Long checkinId, String userEmail) {
         log.info("Cancelling check-in {}", checkinId);
 
         CheckIn checkIn = checkinRepository.findById(checkinId)
@@ -237,7 +239,7 @@ public class CheckInService {
         }
 
         // Cancel seat hold
-        seatClient.cancelSeat(checkIn.getSeatId(), checkIn.getPassengerId());
+        seatClient.cancelSeat(checkIn.getSeatId(), checkIn.getPassengerId(), userEmail);
 
         checkIn.setStatus(CheckInStatus.CANCELLED);
         checkinRepository.save(checkIn);
@@ -252,7 +254,7 @@ public class CheckInService {
      * Get check-in status
      */
     @Transactional(readOnly = true)
-    public CheckInResponse getCheckInStatus(Long checkinId) {
+    public CheckInResponse getCheckInStatus(Long checkinId, String userEmail) {
         CheckIn checkIn = checkinRepository.findById(checkinId)
                 .orElseThrow(() -> new CheckInNotFoundException(checkinId));
 

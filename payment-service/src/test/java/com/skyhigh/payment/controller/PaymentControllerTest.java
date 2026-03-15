@@ -60,6 +60,7 @@ class PaymentControllerTest {
                                 .thenReturn(ApiResponse.success(responseData));
 
                 mockMvc.perform(post("/api/payments/process")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(request)))
                                 .andExpect(status().isCreated())
@@ -81,6 +82,7 @@ class PaymentControllerTest {
                                 .thenReturn(ApiResponse.error("Payment failed"));
 
                 mockMvc.perform(post("/api/payments/process")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(request)))
                                 .andExpect(status().isBadRequest())
@@ -93,6 +95,7 @@ class PaymentControllerTest {
                 PaymentRequest request = new PaymentRequest(); // Invalid request (missing required fields)
 
                 mockMvc.perform(post("/api/payments/process")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(request)))
                                 .andExpect(status().isBadRequest())
@@ -110,7 +113,8 @@ class PaymentControllerTest {
                 when(paymentService.getPaymentByReference("PAY-123"))
                                 .thenReturn(ApiResponse.success(responseData));
 
-                mockMvc.perform(get("/api/payments/PAY-123"))
+                mockMvc.perform(get("/api/payments/PAY-123")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isOk())
                                 .andExpect(jsonPath("$.success").value(true))
                                 .andExpect(jsonPath("$.data.paymentReference").value("PAY-123"));
@@ -122,7 +126,8 @@ class PaymentControllerTest {
                 when(paymentService.getPaymentsByPassengerId("PASS123"))
                                 .thenReturn(ApiResponse.success(Arrays.asList(data)));
 
-                mockMvc.perform(get("/api/payments/passenger/PASS123"))
+                mockMvc.perform(get("/api/payments/passenger/PASS123")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isOk())
                                 .andExpect(jsonPath("$.success").value(true))
                                 .andExpect(jsonPath("$.data").isArray());
@@ -134,7 +139,8 @@ class PaymentControllerTest {
                 when(paymentService.getPaymentsByBookingReference("BOOK456"))
                                 .thenReturn(ApiResponse.success(Arrays.asList(data)));
 
-                mockMvc.perform(get("/api/payments/booking/BOOK456"))
+                mockMvc.perform(get("/api/payments/booking/BOOK456")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isOk())
                                 .andExpect(jsonPath("$.success").value(true))
                                 .andExpect(jsonPath("$.data").isArray());

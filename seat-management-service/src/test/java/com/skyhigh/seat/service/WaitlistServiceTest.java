@@ -5,9 +5,9 @@ import com.skyhigh.seat.model.dto.WaitlistJoinRequest;
 import com.skyhigh.seat.model.entity.Seat;
 import com.skyhigh.seat.model.entity.SeatAssignment;
 import com.skyhigh.seat.model.entity.Waitlist;
-import com.skyhigh.seat.model.enums.SeatAssignmentStatus;
 import com.skyhigh.seat.model.enums.SeatStatus;
 import com.skyhigh.seat.model.enums.WaitlistStatus;
+import com.skyhigh.seat.model.event.WaitlistAssignedEvent;
 import com.skyhigh.seat.repository.SeatAssignmentRepository;
 import com.skyhigh.seat.repository.SeatHistoryRepository;
 import com.skyhigh.seat.repository.SeatRepository;
@@ -163,19 +163,28 @@ class WaitlistServiceTest {
         when(seatRepository.findById(1L)).thenReturn(Optional.of(testSeat));
         when(waitlistRepository.findWaitingBySeatId(1L))
                 .thenReturn(Collections.singletonList(testWaitlist));
-        when(seatRepository.save(any(Seat.class))).thenReturn(testSeat);
+        when(seatRepository.save(any(Seat.class))).thenAnswer(i -> i.getArgument(0));
         when(seatAssignmentRepository.save(any(SeatAssignment.class)))
                 .thenAnswer(i -> i.getArgument(0));
-        when(waitlistRepository.save(any(Waitlist.class))).thenReturn(testWaitlist);
+        when(waitlistRepository.save(any(Waitlist.class))).thenAnswer(i -> i.getArgument(0));
 
         // Act
         waitlistService.processWaitlistForSeat(1L);
 
         // Assert
-        verify(seatRepository).save(any(Seat.class));
+        verify(seatRepository).save(testSeat);
         verify(seatAssignmentRepository).save(any(SeatAssignment.class));
-        verify(waitlistRepository).save(any(Waitlist.class));
+        verify(waitlistRepository).save(testWaitlist);
         verify(seatHistoryRepository).save(any());
+        // Seat should move to HELD for the reassigned passenger
+        assertEquals(SeatStatus.HELD, testSeat.getStatus());
+        // Waitlist entry should be marked as ASSIGNED
+        assertEquals(WaitlistStatus.ASSIGNED, testWaitlist.getStatus());
+        assertNotNull(testWaitlist.getAssignedAt());
+
+        // WaitlistAssignedEvent should be published
+        verify(eventPublisherService, times(1))
+                .publishWaitlistAssignedEvent(any(WaitlistAssignedEvent.class));
         verify(lockService).releaseLock(lock);
     }
 

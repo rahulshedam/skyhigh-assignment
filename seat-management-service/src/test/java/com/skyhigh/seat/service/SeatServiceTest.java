@@ -26,6 +26,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -78,6 +83,7 @@ class SeatServiceTest {
 
         confirmRequest = SeatConfirmRequest.builder()
                 .passengerId("PASS123")
+                .bookingReference("BOOK456")
                 .build();
     }
 
@@ -240,6 +246,34 @@ class SeatServiceTest {
     }
 
     @Test
+    void confirmSeat_HoldNearExpiry_StillAllowsConfirm() {
+        // Arrange: hold expires shortly in the future (edge of TTL window)
+        testSeat.setStatus(SeatStatus.HELD);
+        SeatAssignment assignment = SeatAssignment.builder()
+                .seatId(1L)
+                .passengerId("PASS123")
+                .status(SeatAssignmentStatus.HELD)
+                .expiresAt(LocalDateTime.now().plusSeconds(1))
+                .build();
+
+        when(lockService.acquireLock(anyString())).thenReturn(lock);
+        when(seatRepository.findById(1L)).thenReturn(Optional.of(testSeat));
+        when(seatAssignmentRepository.findBySeatIdAndStatus(1L, SeatAssignmentStatus.HELD))
+                .thenReturn(Optional.of(assignment));
+        when(seatRepository.save(any(Seat.class))).thenReturn(testSeat);
+        when(seatAssignmentRepository.save(any(SeatAssignment.class))).thenReturn(assignment);
+
+        // Act
+        SeatResponse response = seatService.confirmSeat(1L, confirmRequest);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(SeatStatus.CONFIRMED, testSeat.getStatus());
+        assertEquals(SeatAssignmentStatus.CONFIRMED, assignment.getStatus());
+        verify(lockService).releaseLock(lock);
+    }
+
+    @Test
     void cancelSeat_Success() {
         // Arrange
         SeatAssignment assignment = SeatAssignment.builder()
@@ -387,5 +421,151 @@ class SeatServiceTest {
         verify(seatRepository, never()).save(any(Seat.class));
         verify(seatAssignmentRepository, never()).save(any(SeatAssignment.class));
         verify(lockService).releaseLock(lock);
+    }
+
+    @Test
+    void holdSeat_ConcurrentRequests_OnlyOneSucceeds() throws InterruptedException {
+        // Arrange
+        int numThreads = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(numThreads);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failureCount = new AtomicInteger(0);
+
+        // First attempt gets a valid lock; subsequent attempts get null
+        when(lockService.acquireLock(anyString())).thenReturn(lock).thenReturn(null);
+        when(seatRepository.findById(1L)).thenReturn(Optional.of(testSeat));
+        when(seatRepository.save(any(Seat.class))).thenReturn(testSeat);
+        when(seatAssignmentRepository.save(any(SeatAssignment.class))).thenAnswer(i -> i.getArgument(0));
+
+        // Act
+        for (int i = 0; i < numThreads; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await(); // Wait for all threads to be ready
+                    seatService.holdSeat(1L, holdRequest);
+                    successCount.incrementAndGet();
+                } catch (SeatAlreadyHeldException e) {
+                    failureCount.incrementAndGet();
+                } catch (Exception e) {
+                    // other errors
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown(); // Release all threads at once
+        doneLatch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Assert
+        assertEquals(1, successCount.get(), "Only one thread should successfully hold the seat");
+        assertEquals(numThreads - 1, failureCount.get(), "Other threads should fail to acquire lock");
+    }
+
+    @Test
+    void confirmSeat_ConcurrentRequests_OnlyOneSucceeds() throws InterruptedException {
+        // Arrange
+        int numThreads = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(numThreads);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failureCount = new AtomicInteger(0);
+
+        testSeat.setStatus(SeatStatus.HELD);
+        SeatAssignment assignment = SeatAssignment.builder()
+                .id(1L)
+                .seatId(1L)
+                .passengerId("PASS123")
+                .bookingReference("BOOK456")
+                .status(SeatAssignmentStatus.HELD)
+                .heldAt(LocalDateTime.now())
+                .expiresAt(LocalDateTime.now().plusSeconds(120))
+                .build();
+
+        // First attempt gets a valid lock; subsequent attempts get null
+        when(lockService.acquireLock(anyString())).thenReturn(lock).thenReturn(null);
+        when(seatRepository.findById(1L)).thenReturn(Optional.of(testSeat));
+        when(seatAssignmentRepository.findBySeatIdAndStatus(1L, SeatAssignmentStatus.HELD))
+                .thenReturn(Optional.of(assignment));
+        when(seatRepository.save(any(Seat.class))).thenReturn(testSeat);
+        when(seatAssignmentRepository.save(any(SeatAssignment.class))).thenReturn(assignment);
+
+        // Act
+        for (int i = 0; i < numThreads; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await(); // Wait for all threads to be ready
+                    seatService.confirmSeat(1L, confirmRequest);
+                    successCount.incrementAndGet();
+                } catch (SeatAlreadyHeldException e) {
+                    failureCount.incrementAndGet();
+                } catch (Exception e) {
+                    // other errors
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown(); // Release all threads at once
+        doneLatch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Assert
+        assertEquals(1, successCount.get(), "Only one thread should successfully confirm the seat");
+        assertEquals(numThreads - 1, failureCount.get(), "Other threads should fail to acquire lock");
+    }
+
+    @Test
+    void cancelSeat_ConcurrentRequests_SafeExecution() throws InterruptedException {
+        // Arrange
+        int numThreads = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(numThreads);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failureCount = new AtomicInteger(0);
+
+        SeatAssignment assignment = SeatAssignment.builder()
+                .seatId(1L)
+                .passengerId("PASS123")
+                .status(SeatAssignmentStatus.CONFIRMED)
+                .build();
+
+        // First attempt gets a valid lock; subsequent attempts get null
+        when(lockService.acquireLock(anyString())).thenReturn(lock).thenReturn(null);
+        when(seatRepository.findById(1L)).thenReturn(Optional.of(testSeat));
+        when(seatAssignmentRepository.findBySeatId(1L)).thenReturn(Optional.of(assignment));
+        when(seatRepository.save(any(Seat.class))).thenReturn(testSeat);
+        when(seatAssignmentRepository.save(any(SeatAssignment.class))).thenReturn(assignment);
+
+        // Act
+        for (int i = 0; i < numThreads; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await(); // Wait for all threads to be ready
+                    seatService.cancelSeat(1L, "PASS123");
+                    successCount.incrementAndGet();
+                } catch (SeatAlreadyHeldException e) {
+                    failureCount.incrementAndGet();
+                } catch (Exception e) {
+                    // other errors
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown(); // Release all threads at once
+        doneLatch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Assert
+        assertEquals(1, successCount.get(), "Only one thread should successfully cancel the seat");
+        assertEquals(numThreads - 1, failureCount.get(), "Other threads should fail to acquire lock");
     }
 }

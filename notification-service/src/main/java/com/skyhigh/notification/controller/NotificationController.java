@@ -2,12 +2,16 @@ package com.skyhigh.notification.controller;
 
 import com.skyhigh.notification.dto.NotificationRequest;
 import com.skyhigh.notification.dto.NotificationResponse;
+import com.skyhigh.notification.dto.OtpRequest;
+import com.skyhigh.notification.dto.OtpResponse;
+import com.skyhigh.notification.dto.OtpVerifyRequest;
 import com.skyhigh.notification.model.Notification;
 import com.skyhigh.notification.model.NotificationChannel;
 import com.skyhigh.notification.model.NotificationStatus;
 import com.skyhigh.notification.model.NotificationType;
 import com.skyhigh.notification.repository.NotificationRepository;
 import com.skyhigh.notification.service.MockEmailService;
+import com.skyhigh.notification.service.OtpStore;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -37,11 +41,48 @@ public class NotificationController {
 
     private final NotificationRepository notificationRepository;
     private final MockEmailService mockEmailService;
+    private final OtpStore otpStore;
 
     @GetMapping("/hello")
     @Operation(summary = "Health check endpoint")
     public String hello() {
         return "Hello from Notification Service!";
+    }
+
+    // =========================================================================
+    // OTP Endpoints (used for Email-based Authentication)
+    // =========================================================================
+
+    @PostMapping("/otp/send")
+    @Operation(summary = "Send OTP", description = "Generate and send an OTP to the given email for login. OTP is 123123 for assignment purposes.")
+    public ResponseEntity<OtpResponse> sendOtp(@Valid @RequestBody OtpRequest request) {
+        try {
+            String otp = otpStore.generateOtp(request.email());
+            String subject = "SkyHigh Airlines - Your Login OTP";
+            String content = String.format(
+                    "Hello,\n\nYour SkyHigh Airlines login OTP is: %s\n\nThis OTP is valid for 5 minutes.\n\nIf you did not request this, please ignore this email.",
+                    otp
+            );
+            mockEmailService.sendPlainTextEmail(request.email(), subject, content);
+            log.info("OTP sent to: {}", request.email());
+            return ResponseEntity.ok(new OtpResponse(true, "OTP sent to " + request.email() + ". Check server logs (mock email)."));
+        } catch (Exception e) {
+            log.error("Failed to send OTP to: {}", request.email(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new OtpResponse(false, "Failed to send OTP"));
+        }
+    }
+
+    @PostMapping("/otp/verify")
+    @Operation(summary = "Verify OTP", description = "Verify the OTP entered by the user")
+    public ResponseEntity<OtpResponse> verifyOtp(@Valid @RequestBody OtpVerifyRequest request) {
+        boolean valid = otpStore.validateOtp(request.email(), request.otp());
+        if (valid) {
+            return ResponseEntity.ok(new OtpResponse(true, "OTP verified successfully"));
+        } else {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new OtpResponse(false, "Invalid or expired OTP"));
+        }
     }
 
     /**

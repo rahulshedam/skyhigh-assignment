@@ -148,6 +148,7 @@ SkyHigh Core is a high-performance, distributed backend system built using **mic
 - `POST /api/seats/{seatId}/waitlist` - Join waitlist
 - `GET /api/seats/{seatId}/status` - Get seat status
 - `POST /api/bookings/verify` - Verify booking for check-in
+- `POST /api/auth/validate-email` - Validate passenger email for login
 
 #### 4.2.2 Check-in Service
 **Port**: 8082  
@@ -215,6 +216,11 @@ SkyHigh Core is a high-performance, distributed backend system built using **mic
 - Waitlist assignment
 - Payment success/failure
 - Seat hold expiry warning
+- **OTP Delivery**: Sends 6-digit verification codes for login
+
+**Authentication APIs**:
+- `POST /api/otp/send` - Send OTP to email
+- `POST /api/otp/verify` - Verify OTP
 
 **Event-driven notifications (implemented):** Events published: `seat.held`, `seat.confirmed`, `seat.released`, `waitlist.assigned`, `payment.success` / `payment.failure`, `checkin.completed`. Notification Service subscribes and sends email/template notifications.
 
@@ -690,6 +696,15 @@ Passenger A                    Passenger B
      │                              │  Response: Seat already held
 ```
 
+### 9.5 Idempotency Operations
+
+**Problem**: Network retries or repeated user actions causing the same request to be sent multiple times.
+
+**Solution**:
+- Critical operations like seat hold, confirm, and cancel, as well as check-in completion, are designed to be explicitly idempotent.
+- The system checks the existing state, ownership (using `passengerId` and `bookingReference`), and the request identifier.
+- If Passenger A requests to hold a seat they successfully placed on hold microseconds prior, the system validates that they are the current owner of the hold and returns a successful response without attempting modifications anew or throwing conflict errors.
+
 ---
 
 ## 10. Seat Hold Timer Mechanism
@@ -761,7 +776,7 @@ LIMIT 100;
 ### 11.1 Implementation: Bucket4j
 
 **Library**: Bucket4j (Token Bucket Algorithm)  
-**Storage**: In-memory (ConcurrentHashMap per service instance)
+**Storage**: In-memory (ConcurrentHashMap per service instance). Note that limits are enforced *per instance* of the service. For a globally shared distributed rate limit across multiple instances, a Redis-backed Bucket4j configuration would be required.
 
 ### 11.2 Rate Limit Configuration
 
@@ -824,17 +839,21 @@ All APIs enforce request validations and return consistent error responses:
 - **HTTP status codes:** 400 (validation/invalid state), 404 (resource not found), 409 (conflict, e.g. seat already held or hold expired), 429 (rate limit exceeded), 503 (downstream unavailable). See API-SPECIFICATION.md "Error Responses".
 - **Edge cases:** Missing request parameters, type mismatch (e.g. non-numeric seatId), and business rule violations are mapped to the appropriate status and a consistent JSON error shape across Seat, Check-in, and shared handlers.
 
-### 12.2 Threat Model
-
-- **Current scope:** Development/demo. No authentication; endpoints are open. Rate limiting on Seat Management reduces abuse and simple bot traffic.
-- **Threats not mitigated:** Unauthorized access, impersonation, no RBAC; sensitive operations are not gated by identity.
-- **Recommended for production:** JWT-based authentication, RBAC (PASSENGER, STAFF, ADMIN), HTTPS, audit logging for sensitive actions, and threat hardening (e.g. input sanitization, secure headers).
+- **Current implementation:** Simple header-based authentication with Email OTP.
+- **Security Mechanism:** All services (except public endpoints) require the `X-User-Email` header.
+- **Mitigation:** Reduces unauthorized access by requiring a valid passenger email and verifying it via OTP in the frontend.
+- **Threats not fully mitigated:** Header spoofing if the network is not secured; no JWT-based signature validation.
+- **Recommended for production:** JWT-based authentication with asymmetric signing, OAuth2/OIDC provider integration, HTTPS, and strict RBAC.
 
 ### 12.3 Authentication & Authorization
 
-**Current Implementation**: Simplified for development/testing. All endpoints use `permitAll()` with CSRF disabled. No JWT or authentication filter.
+The system implements a **Simplified Email OTP Authentication** flow:
 
-*JWT and RBAC (as described below) are recommended for production but not implemented in the current scope.*
+1.  **Email Validation**: Frontend sends passenger email to Seat Management `/api/auth/validate-email`.
+2.  **OTP Delivery**: Frontend triggers `/api/otp/send` in Notification Service.
+3.  **OTP Verification**: Frontend verifies the OTP (defaulted to `123123` for demo) via `/api/otp/verify`.
+4.  **Authenticated Requests**: Once verified, the frontend stores the email and includes it in the `X-User-Email` header for all subsequent API requests.
+5.  **Backend Enforcement**: Each service uses a `SimpleHeaderAuthFilter` to validate the presence of the header and set the `ROLE_USER` security context.
 
 ### 12.4 Planned Role-Based Access Control (RBAC)
 
@@ -975,7 +994,130 @@ Request arrives → Trace ID generated → Propagated via HTTP headers
 
 ---
 
-## 16. Deployment Architecture
+## 16. Architecture Decision Records (ADR Summary)
+
+This section captures the key architectural decisions for the current implementation, including alternatives and rationale.
+
+### ADR-001: Microservices vs Modular Monolith
+
+- **Status**: Accepted for assignment scope; subject to review for production.
+- **Decision**: Implement separate microservices for Seat Management, Check-in, Baggage, Payment, Notification, plus a React frontend.
+- **Alternatives considered**:
+  - **Modular monolith (Spring Boot)** with strong internal module boundaries.
+  - **Fewer, coarser-grained services** (e.g. Seat+Check-in, Baggage+Payment+Notification).
+- **Rationale**:
+  - Clean alignment with airline domains, independent scaling, and clear ownership boundaries.
+  - Event-driven workflows (waitlist, payment notifications) map naturally to separate services.
+  - For real production, a modular monolith or fewer services could reduce operational overhead; the current design intentionally optimizes for clarity of domain boundaries and demonstration of senior-level architecture.
+
+### ADR-002: Java 21 + Spring Boot 3.5 for Backend
+
+- **Status**: Accepted.
+- **Decision**: Use Java 21 and Spring Boot 3.5 for all backend services.
+- **Alternatives considered**:
+  - .NET 8 / ASP.NET Core, Node.js / NestJS, Go-based services.
+- **Rationale**:
+  - Mature ecosystem for microservices, resilience (Resilience4j), observability, and messaging.
+  - Java 21 brings virtual threads and modern language features suitable for high-concurrency workloads.
+  - Team familiarity and enterprise-readiness outweigh the benefits of switching to an alternative stack for this project.
+
+### ADR-003: Per-Service H2 Databases
+
+- **Status**: Accepted for development and assignment; must be revisited for production.
+- **Decision**: Use H2 (filesystem locally, in-memory in Docker) with a separate database per service.
+- **Alternatives considered**:
+  - Shared PostgreSQL/MySQL cluster with separate schemas per service.
+  - Dedicated managed relational databases per service in production.
+- **Rationale**:
+  - Zero external dependencies and fast setup for evaluation and local development.
+  - Preserves the “database per service” pattern and schemas so that migration to PostgreSQL or another RDBMS is straightforward.
+  - For production, a relational database such as PostgreSQL is recommended; this ADR documents that H2 is intentionally a development-time choice, not a production endorsement.
+
+### ADR-004: RabbitMQ for Messaging
+
+- **Status**: Accepted.
+- **Decision**: Use RabbitMQ as the primary message broker for domain events (seat, baggage, payment, check-in).
+- **Alternatives considered**:
+  - Apache Kafka for high-throughput streaming and replay.
+  - Cloud-native queues (e.g. AWS SQS, GCP Pub/Sub) in a managed environment.
+- **Rationale**:
+  - RabbitMQ offers simple, reliable task-queue semantics, routing keys, and a management UI with much lower operational complexity than Kafka.
+  - The current workload is command/event oriented (notifications, seat events) rather than analytics-heavy streaming, making RabbitMQ a better fit.
+  - Kafka or cloud-native queues can be introduced later if throughput and analytics needs outgrow RabbitMQ.
+
+### ADR-005: Redis for Caching and Distributed Locks
+
+- **Status**: Accepted.
+- **Decision**: Use Redis for seat-map caching and distributed locking (via Redisson) in Seat Management.
+- **Alternatives considered**:
+  - Pure database-level locking and in-memory caches only.
+  - In-memory data grids (Hazelcast, Ignite).
+- **Rationale**:
+  - Redis is a lightweight, widely-used solution for both caching and locking, with well-understood operational characteristics.
+  - It decouples concurrency control from the database and supports horizontal scaling of seat-related workloads.
+  - Heavier data grids were deemed unnecessary for the current scale and complexity.
+
+### ADR-006: Rate Limiting with Bucket4j Inside Seat Management
+
+- **Status**: Accepted as a service-level safeguard.
+- **Decision**: Apply IP-based rate limiting (50 requests / 2 seconds) with Bucket4j at the Seat Management service layer.
+- **Alternatives considered**:
+  - Centralized rate limiting at an API gateway (Kong, NGINX, Spring Cloud Gateway, cloud API gateways).
+  - Service-mesh-level policies (Istio, Linkerd).
+- **Rationale**:
+  - Bucket4j offers simple, code-level protection that is easy to reason about and test in isolation.
+  - For assignment scope, introducing an API gateway or service mesh would add significant complexity without proportional benefit.
+  - For production, a gateway-based global rate limiting and bot-detection strategy is recommended, with Bucket4j remaining as a second line of defense within the service.
+  - In the current implementation Bucket4j uses in-memory buckets, so limits are enforced **per instance**; with multiple containers/EC2 instances the effective global limit scales with the number of instances. A Redis-/JDBC-backed Bucket4j configuration or an API gateway would be required for truly shared, cluster-wide limits.
+
+### ADR-007: Frontend Stack (React 18 + TypeScript + Vite + Redux Toolkit + MUI)
+
+- **Status**: Accepted.
+- **Decision**: Implement the SPA frontend with React 18, TypeScript, Vite, Redux Toolkit, Axios, and Material UI.
+- **Alternatives considered**:
+  - Next.js (React with SSR/SSG), Angular, Vue.
+- **Rationale**:
+  - React + TypeScript + Redux Toolkit is a proven combination for complex, stateful flows such as multi-step check-in and seat selection.
+  - Vite provides fast local development and builds; MUI offers a mature component library to accelerate UI development.
+  - SSR/SEO are not primary concerns for an authenticated check-in portal, so SPA architecture is sufficient.
+
+### ADR-008: No API Gateway in Current Scope
+
+- **Status**: Accepted with explicit limitation.
+- **Decision**: Allow the frontend to communicate directly with backend services, without an API gateway.
+- **Alternatives considered**:
+  - Dedicated API gateway (Kong, NGINX, Spring Cloud Gateway, cloud-native gateways).
+- **Rationale**:
+  - Reduces moving parts for local development and evaluation; simplifies configuration and troubleshooting.
+  - For this assignment, the benefits of centralized auth/rate limiting/routing do not outweigh the added setup and complexity.
+  - For production, an API gateway is recommended to centralize concerns such as authentication, authorization, rate limiting, and request shaping; this ADR documents that omission as a deliberate scope trade-off.
+
+### ADR-010: API Gateway vs Backend for Frontend (BFF)
+
+- **Status**: Documented as future architectural option.
+- **Decision**: Do not introduce a separate BFF layer in the current scope; the React SPA talks directly to the backend services (and, in a future iteration, would likely do so via an API gateway).
+- **Alternatives considered**:
+  - Dedicated **API Gateway** at the edge plus a **Web BFF** behind it that aggregates data for the check-in UI.
+  - Multiple BFFs (Web, Mobile) sitting behind a single gateway for client-specific APIs.
+- **Rationale**:
+  - An API Gateway focuses on **cross-cutting concerns** at the edge (TLS termination, authentication/authorization, global rate limiting, routing, WAF, observability) and is largely client-agnostic.
+  - A BFF focuses on **UI-centric orchestration** and shaping data for a specific client (e.g. “check-in page view model” combining seat, baggage, payment, and notification states).
+  - For this assignment, introducing both would significantly increase moving parts; the current design keeps the edge simple while leaving room to add an API gateway and a Web BFF in a future production evolution.
+
+### ADR-009: Use of H2, Open Endpoints, and Simplified Security for Assignment
+
+- **Status**: Accepted for demo; explicitly non-production.
+- **Decision**: Use H2, open endpoints (no JWT/RBAC), and minimal edge security to focus on core workflows and concurrency.
+- **Alternatives considered**:
+  - Full security stack (Spring Security with JWT/OIDC, RBAC, hardened headers, strict validation).
+  - Production-grade databases and secret management.
+- **Rationale**:
+  - The primary evaluation focus is on seat lifecycle, concurrency, and workflow orchestration rather than full production hardening.
+  - Security architecture is documented (see §12) with clear recommendations for JWT, RBAC, and gateway integration, but intentionally not fully implemented to keep the assignment and demo deployable.
+
+---
+
+## 17. Deployment Architecture
 
 ### 16.1 Docker Compose Architecture
 

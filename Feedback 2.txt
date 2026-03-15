@@ -1,0 +1,67 @@
+Hi ,
+
+Thank you for completing Assignment 4 and submitting your solution. We appreciate the time and effort invested in the implementation. Below is a structured summary of the evaluation highlighting key observations and areas where improvements would strengthen the overall solution.
+
+AI Collaboration
+Key Problems / Critical Gaps
+
+AI was primarily used for code generation rather than architectural exploration or design reasoning.
+
+The collaboration pattern appears mostly command-driven, with limited discussion around system design alternatives.
+
+There was little evidence of questioning requirements or exploring trade-offs during the development process.
+
+For complex systems, leveraging AI as a collaborative design partner can help validate assumptions and explore more robust architectural approaches.
+
+Check-In System Design
+Key Problems / Critical Gaps
+
+The check-in workflow does not clearly define an explicit payment pause/resume state for excess baggage scenarios.
+
+While seat hold expiration is mentioned, the documentation does not clearly demonstrate guaranteed automatic seat release with fail-safe mechanisms when the hold expires.
+
+These workflow states are important to ensure the check-in lifecycle remains consistent and predictable.
+
+Advanced System Architecture
+Key Problems / Critical Gaps
+
+The system includes internal rate limiting through tools such as Bucket4j, but there is no clear API-level strategy for handling abusive traffic.
+
+Rate limiting behavior and abuse detection events are not clearly surfaced through API responses or audit logs, which limits operational visibility.
+
+Implementation
+Key Problems / Critical Gaps
+
+The API specification does not clearly document error handling for seat conflicts or seat hold expiration scenarios.
+
+Standard HTTP status codes (for example 409 Conflict) are not consistently defined for concurrency-related responses.
+
+Request validation rules for important business constraints (such as seat availability or baggage limits) are not clearly documented.
+
+The documentation does not fully describe the seat cancellation endpoint implementation, particularly how it handles concurrency and waitlist reassignment.
+
+Documentation & Quality
+Key Problems / Critical Gaps
+
+The repository does not clearly show test files or test scenarios for concurrency conflicts and hold expiry edge cases.
+
+Security considerations are minimal. Authentication, authorization, or role-based access control are not implemented or documented.
+
+The README does not clearly describe how to configure or run advanced features, including waitlist processing or abuse detection mechanisms.
+
+Suggested Focus Areas
+Use AI collaboration to explore architecture decisions, trade-offs, and system design validation, not only code generation.
+
+Clearly document and implement workflow states for payment-dependent operations, such as excess baggage payments.
+
+Strengthen seat lifecycle management, ensuring explicit and reliable seat auto-release behavior.
+
+Improve API documentation, including complete error handling definitions and standard HTTP status codes.
+
+Add request validation rules for critical business operations.
+
+Implement security mechanisms, including authentication and authorization.
+
+Expand testing coverage, particularly for concurrency, race conditions, and hold expiry scenarios.
+
+Improve documentation to explain advanced system behaviors and operational configurations.

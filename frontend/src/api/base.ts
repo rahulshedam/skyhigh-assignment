@@ -1,6 +1,8 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { toast } from 'react-toastify';
 
+const EMAIL_KEY = 'skyhigh_user_email';
+
 const api: AxiosInstance = axios.create({
     timeout: 10000,
     headers: {
@@ -8,10 +10,13 @@ const api: AxiosInstance = axios.create({
     },
 });
 
-// Request interceptor
+// Request interceptor — attach X-User-Email header if logged in
 api.interceptors.request.use(
     (config) => {
-        // You can add auth tokens here if needed
+        const email = localStorage.getItem(EMAIL_KEY);
+        if (email) {
+            config.headers['X-User-Email'] = email;
+        }
         return config;
     },
     (error) => {

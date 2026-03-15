@@ -71,6 +71,7 @@ class WaitlistControllerTest {
 
                 // Act & Assert
                 mockMvc.perform(post("/api/seats/1/waitlist")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(joinRequest)))
                                 .andExpect(status().isCreated())
@@ -86,6 +87,7 @@ class WaitlistControllerTest {
 
                 // Act & Assert
                 mockMvc.perform(post("/api/seats/1/waitlist")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(invalidRequest)))
                                 .andExpect(status().isBadRequest());
@@ -98,7 +100,8 @@ class WaitlistControllerTest {
                                 .thenReturn(Collections.singletonList(waitlist));
 
                 // Act & Assert
-                mockMvc.perform(get("/api/seats/waitlist/PASS123"))
+                mockMvc.perform(get("/api/seats/waitlist/PASS123")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isOk())
                                 .andExpect(jsonPath("$[0].passengerId").value("PASS123"))
                                 .andExpect(jsonPath("$[0].status").value("WAITING"));
@@ -110,7 +113,8 @@ class WaitlistControllerTest {
                 doNothing().when(waitlistService).removeFromWaitlist(1L);
 
                 // Act & Assert
-                mockMvc.perform(delete("/api/seats/waitlist/1"))
+                mockMvc.perform(delete("/api/seats/waitlist/1")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isNoContent());
         }
 
@@ -119,7 +123,8 @@ class WaitlistControllerTest {
                 doThrow(new com.skyhigh.seat.exception.WaitlistNotFoundException(999L))
                                 .when(waitlistService).removeFromWaitlist(999L);
 
-                mockMvc.perform(delete("/api/seats/waitlist/999"))
+                mockMvc.perform(delete("/api/seats/waitlist/999")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isNotFound())
                                 .andExpect(jsonPath("$.message").value("Waitlist entry not found: 999"));
         }

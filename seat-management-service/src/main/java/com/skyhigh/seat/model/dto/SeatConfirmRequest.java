@@ -19,4 +19,8 @@ public class SeatConfirmRequest {
     @NotNull(message = "Passenger ID is required")
     @NotBlank(message = "Passenger ID cannot be blank")
     private String passengerId;
+
+    @NotNull(message = "Booking reference is required")
+    @NotBlank(message = "Booking reference cannot be blank")
+    private String bookingReference;
 }

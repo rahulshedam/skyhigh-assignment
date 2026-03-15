@@ -2,11 +2,13 @@ import { configureStore } from '@reduxjs/toolkit';
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
 import seatReducer from './slices/seatSlice';
 import checkinReducer from './slices/checkinSlice';
+import authReducer from './slices/authSlice';
 
 export const store = configureStore({
     reducer: {
         seats: seatReducer,
         checkin: checkinReducer,
+        auth: authReducer,
     },
     middleware: (getDefaultMiddleware) =>
         getDefaultMiddleware({

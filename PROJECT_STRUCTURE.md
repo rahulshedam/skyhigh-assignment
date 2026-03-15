@@ -137,13 +137,15 @@ seat-management-service/
 │   │   │               │   ├── RedisConfig.java                    # Redis cache configuration
 │   │   │               │   ├── RabbitMQConfig.java                 # RabbitMQ messaging config
 │   │   │               │   ├── SchedulerConfig.java                # Scheduler configuration
-│   │   │               │   └── SecurityConfig.java                 # Security configuration
+│   │   │               │   ├── SecurityConfig.java                 # Security configuration
+│   │   │               │   └── SimpleHeaderAuthFilter.java         # Header-based auth filter
 │   │   │               │
 │   │   │               ├── controller/                             # REST API Controllers
 │   │   │               │   ├── SeatController.java                 # Seat operations
 │   │   │               │   ├── SeatMapController.java              # Seat map retrieval
 │   │   │               │   ├── WaitlistController.java             # Waitlist management
-│   │   │               │   └── BookingController.java              # Booking verification
+│   │   │               │   ├── BookingController.java              # Booking verification
+│   │   │               │   └── AuthController.java                 # Email validation for login
 │   │   │               │
 │   │   │               ├── service/                                # Business logic
 │   │   │               │   ├── SeatService.java                    # Seat hold/confirm/cancel
@@ -152,7 +154,8 @@ seat-management-service/
 │   │   │               │   ├── SeatExpiryService.java              # Expiry handling
 │   │   │               │   ├── LockService.java                    # Distributed locking
 │   │   │               │   ├── EventPublisherService.java          # RabbitMQ event publisher
-│   │   │               │   └── BookingService.java                 # Booking verification
+│   │   │               │   ├── BookingService.java                 # Booking verification
+│   │   │               │   └── RateLimitAuditService.java          # Audit rate-limit events
 │   │   │               │
 │   │   │               ├── repository/                             # Data access layer
 │   │   │               │   ├── SeatRepository.java
@@ -289,7 +292,8 @@ checkin-service/
 │   │   │               │
 │   │   │               ├── config/
 │   │   │               │   ├── AppConfig.java                      # RestTemplate, Feign config
-│   │   │               │   └── SecurityConfig.java
+│   │   │               │   ├── SecurityConfig.java
+│   │   │               │   └── SimpleHeaderAuthFilter.java
 │   │   │               │
 │   │   │               ├── controller/
 │   │   │               │   └── CheckInController.java              # Check-in start, complete
@@ -386,7 +390,8 @@ baggage-service/
 │   │   │               │
 │   │   │               ├── config/
 │   │   │               │   ├── RabbitMQConfig.java
-│   │   │               │   └── SecurityConfig.java
+│   │   │               │   ├── SecurityConfig.java
+│   │   │               │   └── SimpleHeaderAuthFilter.java
 │   │   │               │
 │   │   │               ├── controller/
 │   │   │               │   └── BaggageController.java              # Validation endpoints
@@ -504,7 +509,8 @@ notification-service/
 │   │   │   ├── service/
 │   │   │   │   ├── NotificationService.java
 │   │   │   │   ├── TemplateService.java
-│   │   │   │   └── MockEmailService.java
+│   │   │   │   ├── MockEmailService.java
+│   │   │   │   └── OtpStore.java
 │   │   │   ├── repository/NotificationRepository.java
 │   │   │   ├── model/ (Notification, NotificationType, NotificationStatus, NotificationChannel)
 │   │   │   ├── dto/ (NotificationRequest, NotificationResponse, EmailRequest)
@@ -550,13 +556,15 @@ frontend/
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Header.tsx
-│   │   │   └── MainLayout.tsx
+│   │   │   ├── MainLayout.tsx
+│   │   │   └── ProtectedRoute.tsx
 │   │   │
 │   │   └── features/
 │   │       └── SeatGrid.tsx
 │   │
 │   ├── pages/
 │   │   ├── HomePage/HomePage.tsx
+│   │   ├── LoginPage/LoginPage.tsx
 │   │   ├── SeatSelectionPage/SeatSelectionPage.tsx
 │   │   ├── CheckinPage/CheckinPage.tsx
 │   │   ├── WaitlistPage/WaitlistPage.tsx
@@ -567,7 +575,8 @@ frontend/
 │   │   ├── index.ts
 │   │   └── slices/
 │   │       ├── seatSlice.ts
-│   │       └── checkinSlice.ts
+│   │       ├── checkinSlice.ts
+│   │       └── authSlice.ts
 │   │
 │   ├── api/                                                       # API layer (Axios)
 │   │   ├── base.ts                                                # Axios instance + interceptors

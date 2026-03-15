@@ -47,6 +47,27 @@ SkyHigh Core is a microservices-based digital check-in system. This document des
 │             │     │   (React)   │     │   Service   │     │   Service   │
 └──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
        │                   │                   │                   │
+       │  Step 1: Login    │                   │                   │
+       │                   │                   │                   │
+       │ Enter Email       │                   │                   │
+       │──────────────────>│                   │                   │
+       │                   │ POST /auth/validate-email             │
+       │                   │──────────────────────────────────────>│
+       │                   │                   │                   │
+       │ Valid / Invalid ? │                   │                   │
+       │<──────────────────│<──────────────────────────────────────│
+       │                   │                   │                   │
+       │ [If Valid]        │ POST /otp/send    │                   │
+       │                   │──────────────────>│ Notification Svc  │
+       │                   │                   │                   │
+       │ [User Input]      │ POST /otp/verify  │                   │
+       │ Enter OTP         │──────────────────>│ Notification Svc  │
+       │                   │                   │                   │
+       │ Logged In ✓       │                   │                   │
+       │<──────────────────│                   │                   │
+       │                   │                   │                   │
+       │  Step 2: Check-in │                   │                   │
+       │                   │                   │                   │
        │ Enter booking ref │                   │                   │
        │──────────────────>│                   │                   │
        │                   │ POST /checkin/start                   │
@@ -108,6 +129,31 @@ SkyHigh Core is a microservices-based digital check-in system. This document des
                     └─────┬─────┘             └─────▲─────┘
                           │                         │
                           └─────────────────────────┘
+
+### 2.2.1 Authentication Workflow (Email OTP)
+
+```
+   User          Frontend        Seat Mgmt      Notification
+     │               │               │               │
+     │ Submit Email  │               │               │
+     │──────────────>│               │               │
+     │               │ validate-email│               │
+     │               │──────────────>│               │
+     │               │ (Check DB)    │               │
+     │               │ <─────────────│               │
+     │               │               │               │
+     │               │ [If Valid]    │               │
+     │               │ otp/send      │               │
+     │               │──────────────────────────────>│
+     │               │               │               │
+     │ Enter OTP     │               │               │
+     │──────────────>│               │               │
+     │               │ otp/verify    │               │
+     │               │──────────────────────────────>│
+     │               │               │               │
+     │ Login Success │               │               │
+     │ <─────────────│               │               │
+```
 ```
 
 ### 2.3 Seat Hold with Concurrency (Conflict Resolution)
@@ -135,6 +181,13 @@ SkyHigh Core is a microservices-based digital check-in system. This document des
        │                         │<───────────────────────│                       │
 ```
 
+### 2.3.1 Idempotency in Seat Holds
+
+If Passenger A successfully holds `12A` and submits another `POST /hold 12A` request due to a network retry (same `passengerId` and `bookingReference`):
+- The system recognizes Passenger A already holds the seat.
+- Bypasses the conflict error (409).
+- Returns `200 OK` exactly as it did initially.
+
 ### 2.4 Seat Expiry & Waitlist Assignment Flow
 
 ```
@@ -147,10 +200,25 @@ SkyHigh Core is a microservices-based digital check-in system. This document des
        │                     │──────────────────────>│                       │
        │                     │                       │                       │
        │                     │  For each expired:    │                       │
-       │                     │  - Release seat       │                       │
-       │                     │  - Update AVAILABLE   │                       │
-       │                     │  - Publish SeatReleasedEvent                  │
-       │                     │                       │                       │
+       │                     │  - Acquire Redis lock │
+       │                     │    on seat:{id}       │
+       │                     │  - Re-read assignment │
+       │                     │    in DB              │
+       │                     │  - If still HELD and  │
+       │                     │    expires_at < now:  │
+       │                     │      · Update seat →  │
+       │                     │        AVAILABLE      │
+       │                     │      · Mark assignment│
+       │                     │        CANCELLED      │
+       │                     │      · Write EXPIRED  │
+       │                     │        to history     │
+       │                     │      · Publish        │
+       │                     │        SeatReleasedEvent
+       │                     │  - If seat already    │
+       │                     │    CONFIRMED or       │
+       │                     │    assignment not HELD│
+       │                     │    → skip (no-op)     │
+       │                     │                       │
        │                     │  processSeatRelease() │                       │
        │                     │──────────────────────────────────────────────>│
        │                     │                       │  SELECT waitlist      │
@@ -202,7 +270,54 @@ When baggage weight exceeds 25 kg, check-in **pauses** at status `WAITING_FOR_PA
 1. **When check-in pauses:** After baggage validation returns excess fee (weight > 25 kg), Check-in Service sets status to `WAITING_FOR_PAYMENT` and stores the excess fee; the seat remains held.
 2. **Allowed actions while paused:** The client may call `GET /api/checkin/{checkinId}` to read status and fee; no other state change until payment is completed.
 3. **Resume:** The client processes payment via Payment Service (`POST /api/payments/process`), then calls `POST /api/checkin/{checkinId}/complete` with the request body `{ "paymentId": "<payment_reference>" }`. Check-in Service records the payment reference, confirms the seat with Seat Management, and sets status to `COMPLETED`.
-4. **Verification:** Payment is processed by Payment Service; Check-in Service only records the payment reference and does not re-validate the payment amount (excess fee was already determined at pause time).
+4. **Verification:** Payment is processed and validated by Payment Service. Check-in Service requires a **non-empty `paymentId` when an excess fee is present** and records that reference; it does **not** recompute the fee amount at completion time (the excess fee was already determined at pause time).
+
+### 2.5.2 Check-in State Machine for Payment-Dependent Operations
+
+The **check-in workflow states** for baggage and payment are:
+
+- `IN_PROGRESS`
+  - When: A check-in is first started (seat held successfully) or when baggage is updated with no excess fee.
+  - Characteristics:
+    - Seat is in `HELD` state in Seat Management.
+    - `excessBaggageFee` is `0` or `null`.
+  - Allowed transitions:
+    - `IN_PROGRESS → WAITING_FOR_PAYMENT` when `baggageWeight > 25kg` and Baggage Service returns `requiresPayment=true`.
+    - `IN_PROGRESS → COMPLETED` via `POST /api/checkin/{id}/complete` when no payment is required.
+    - `IN_PROGRESS → CANCELLED` via `POST /api/checkin/{id}/cancel`.
+
+- `WAITING_FOR_PAYMENT`
+  - When: Baggage Service has calculated an excess fee (`excessBaggageFee > 0`) and the passenger has not yet paid.
+  - Characteristics:
+    - Seat remains `HELD` (subject to the global 120s hold + expiry safeguards in Seat Management).
+    - `excessBaggageFee` is populated on the `checkins` record.
+  - Allowed transitions:
+    - `WAITING_FOR_PAYMENT → COMPLETED` via `POST /api/checkin/{id}/complete` **only if** a non-empty `paymentId` is provided.
+    - `WAITING_FOR_PAYMENT → CANCELLED` via `POST /api/checkin/{id}/cancel` (e.g., passenger abandons).
+  - Disallowed:
+    - Further baggage updates that would bypass payment.
+    - Direct completion without `paymentId` (CheckInService throws a `CheckInException`).
+
+- `COMPLETED`
+  - When: Check-in has been finalized:
+    - For non-excess baggage: immediately after successful baggage validation.
+    - For excess baggage: after a valid `paymentId` is supplied and seat confirmation succeeds.
+  - Characteristics:
+    - Seat is moved to `CONFIRMED` in Seat Management.
+    - `completedAt` is set; `paymentId` is stored when there was an excess fee.
+  - Transitions:
+    - Terminal state for the check-in workflow: further calls to `complete`, `cancel`, or `updateBaggage` result in `CheckInException`.
+
+- `CANCELLED`
+  - When: Passenger (or system) cancels a non-finalized check-in (`IN_PROGRESS` or `WAITING_FOR_PAYMENT`).
+  - Characteristics:
+    - Check-in status is updated to `CANCELLED`.
+    - Check-in history records the cancellation action.
+    - Seat Management `cancelSeat` is invoked so that:
+      - The seat becomes `AVAILABLE` again, and
+      - The Waitlist processor can automatically reassign it to the next waitlisted passenger.
+  - Transitions:
+    - Terminal state; no further state changes are allowed.
 
 ---
 
@@ -432,14 +547,24 @@ checkin_id | fromStatus         | toStatus            | action              | ti
 
 - **Timer**: `SeatExpiryScheduler` runs every 10 seconds
 - **Query**: `SELECT * FROM seat_assignments WHERE status = 'HELD' AND expires_at < NOW()`
-- **Action**: Release seat, update `Seat` and `SeatAssignment`, write to `seat_history`, publish `SeatReleasedEvent`
+- **Locking**: For each expired assignment, `SeatExpiryService` acquires the same Redis/Redisson lock (`seat:lock:{id}`) used for hold/confirm/cancel, then re-reads the latest assignment and seat state **inside the lock**.
+- **Action**:
+  - If the assignment is still `HELD` and `expires_at < now`:
+    - Release the seat (set `Seat.status = AVAILABLE`)
+    - Mark the assignment `CANCELLED`
+    - Write an `EXPIRED` entry to `seat_history` with a 120s-expiry detail
+    - Publish `SeatReleasedEvent`
+  - If the seat is already `CONFIRMED` or the assignment is no longer `HELD`, the expiry job **skips** that record (no-op), ensuring it never overwrites a confirmed seat.
 - **Waitlist**: `WaitlistProcessorScheduler` runs every 5 seconds, assigns seat to first waiting passenger
 
 ### 5.3 Baggage and Payment Rules
 
 - **Free weight**: 25 kg
 - **Excess fee**: $10 per kg over 25 kg
-- **Status flow**: If weight > 25 kg, check-in moves to `WAITING_FOR_PAYMENT`; completion requires valid `paymentId` verified with Payment Service
+- **Status flow**:
+  - If `weight ≤ 25 kg`, check-in either stays `IN_PROGRESS` (when starting without immediate completion) or moves directly to `COMPLETED` without any payment.
+  - If `weight > 25 kg`, check-in moves to `WAITING_FOR_PAYMENT` with `excessBaggageFee` stored on the record; completion from this state **requires a non-empty `paymentId`** to be provided.
+  - Payment success/failure (amount, card details, etc.) is handled inside Payment Service; Check-in Service records the `paymentId` and uses it as a reference for audit/history rather than recomputing or re-validating the fee amount.
 
 ### 5.4 Event-Driven Notifications
 
@@ -450,7 +575,7 @@ checkin_id | fromStatus         | toStatus            | action              | ti
 ### 5.5 Rate Limiting
 
 - **Bucket4j**: 50 requests per 2 seconds per IP
-- **Storage**: Redis for distributed rate limit state
+- **Storage**: In-memory (ConcurrentHashMap) per instance
 - **Block duration**: Configurable (e.g. 5 minutes on abuse)
 
 ---

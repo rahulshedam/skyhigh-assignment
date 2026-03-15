@@ -42,17 +42,17 @@ class SeatManagementClientTest {
         SeatHoldRequest request = new SeatHoldRequest("P100", "SKY123");
         SeatResponse expectedResponse = new SeatResponse(1L, "1A", "HELD", "P100", "SKY123");
 
-        when(restTemplate.postForEntity(eq(seatServiceUrl + "/api/seats/" + seatId + "/hold"), eq(request),
+        when(restTemplate.exchange(eq(seatServiceUrl + "/api/seats/" + seatId + "/hold"), eq(org.springframework.http.HttpMethod.POST), any(),
                 eq(SeatResponse.class)))
                 .thenReturn(new ResponseEntity<>(expectedResponse, HttpStatus.OK));
 
         // Act
-        SeatResponse response = seatClient.holdSeat(seatId, request);
+        SeatResponse response = seatClient.holdSeat(seatId, request, "test@example.com");
 
         // Assert
         assertNotNull(response);
         assertEquals("HELD", response.status());
-        verify(restTemplate).postForEntity(anyString(), any(), any());
+        verify(restTemplate).exchange(anyString(), any(), any(), eq(SeatResponse.class));
     }
 
     @Test
@@ -62,12 +62,12 @@ class SeatManagementClientTest {
         SeatConfirmRequest request = new SeatConfirmRequest("P100", "SKY123");
         SeatResponse expectedResponse = new SeatResponse(1L, "1A", "CONFIRMED", "P100", "SKY123");
 
-        when(restTemplate.postForEntity(eq(seatServiceUrl + "/api/seats/" + seatId + "/confirm"), eq(request),
+        when(restTemplate.exchange(eq(seatServiceUrl + "/api/seats/" + seatId + "/confirm"), eq(org.springframework.http.HttpMethod.POST), any(),
                 eq(SeatResponse.class)))
                 .thenReturn(new ResponseEntity<>(expectedResponse, HttpStatus.OK));
 
         // Act
-        SeatResponse response = seatClient.confirmSeat(seatId, request);
+        SeatResponse response = seatClient.confirmSeat(seatId, request, "test@example.com");
 
         // Assert
         assertNotNull(response);
@@ -81,10 +81,10 @@ class SeatManagementClientTest {
         String passengerId = "P100";
 
         // Act
-        seatClient.cancelSeat(seatId, passengerId);
+        seatClient.cancelSeat(seatId, passengerId, "test@example.com");
 
         // Assert
-        verify(restTemplate).delete(eq(seatServiceUrl + "/api/seats/" + seatId + "/cancel?passengerId=" + passengerId));
+        verify(restTemplate).exchange(eq(seatServiceUrl + "/api/seats/" + seatId + "/cancel?passengerId=" + passengerId), eq(org.springframework.http.HttpMethod.DELETE), any(), eq(Void.class));
     }
 
     @Test
@@ -95,7 +95,7 @@ class SeatManagementClientTest {
         Exception exception = new RuntimeException("Connection refused");
 
         // Act & Assert
-        assertThrows(ServiceUnavailableException.class, () -> seatClient.holdSeatFallback(seatId, request, exception));
+        assertThrows(ServiceUnavailableException.class, () -> seatClient.holdSeatFallback(seatId, request, "test@example.com", exception));
     }
 
     @Test
@@ -107,6 +107,6 @@ class SeatManagementClientTest {
 
         // Act & Assert
         assertThrows(ServiceUnavailableException.class,
-                () -> seatClient.confirmSeatFallback(seatId, request, exception));
+                () -> seatClient.confirmSeatFallback(seatId, request, "test@example.com", exception));
     }
 }

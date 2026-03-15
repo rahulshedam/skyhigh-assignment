@@ -75,6 +75,7 @@ class NotificationControllerIntegrationTest {
 
         // When & Then
         mockMvc.perform(get("/api/notifications")
+                        .header("X-User-Email", "test@example.com")
                         .param("page", "0")
                         .param("size", "10"))
                 .andExpect(status().isOk())
@@ -89,7 +90,8 @@ class NotificationControllerIntegrationTest {
         Notification saved = notificationRepository.save(testNotification);
 
         // When & Then
-        mockMvc.perform(get("/api/notifications/{id}", saved.getId()))
+        mockMvc.perform(get("/api/notifications/{id}", saved.getId())
+                        .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(saved.getId()))
                 .andExpect(jsonPath("$.subject").value("Test Notification"));
@@ -98,7 +100,8 @@ class NotificationControllerIntegrationTest {
     @Test
     void testGetNotificationById_NotFound() throws Exception {
         // When & Then
-        mockMvc.perform(get("/api/notifications/{id}", 999L))
+        mockMvc.perform(get("/api/notifications/{id}", 999L)
+                        .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isNotFound());
     }
 
@@ -108,7 +111,8 @@ class NotificationControllerIntegrationTest {
         notificationRepository.save(testNotification);
 
         // When & Then
-        mockMvc.perform(get("/api/notifications/recipient/{recipientId}", "test@example.com"))
+        mockMvc.perform(get("/api/notifications/recipient/{recipientId}", "test@example.com")
+                        .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].recipient").value("test@example.com"));
@@ -120,7 +124,8 @@ class NotificationControllerIntegrationTest {
         notificationRepository.save(testNotification);
 
         // When & Then
-        mockMvc.perform(get("/api/notifications/status/{status}", "SENT"))
+        mockMvc.perform(get("/api/notifications/status/{status}", "SENT")
+                        .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].status").value("SENT"));
@@ -132,7 +137,8 @@ class NotificationControllerIntegrationTest {
         notificationRepository.save(testNotification);
 
         // When & Then
-        mockMvc.perform(get("/api/notifications/booking/{bookingReference}", "TEST123"))
+        mockMvc.perform(get("/api/notifications/booking/{bookingReference}", "TEST123")
+                        .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].bookingReference").value("TEST123"));
@@ -150,8 +156,10 @@ class NotificationControllerIntegrationTest {
 
         // When & Then
         mockMvc.perform(post("/api/notifications/test")
+                        .header("X-User-Email", "test@example.com")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
+
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.recipient").value("test@example.com"))
                 .andExpect(jsonPath("$.subject").value("Test Subject"))
@@ -169,6 +177,7 @@ class NotificationControllerIntegrationTest {
 
         // When & Then
         mockMvc.perform(post("/api/notifications/test")
+                        .header("X-User-Email", "test@example.com")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
@@ -183,6 +192,7 @@ class NotificationControllerIntegrationTest {
 
         // When & Then
         mockMvc.perform(post("/api/notifications/test")
+                        .header("X-User-Email", "test@example.com")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
@@ -207,7 +217,8 @@ class NotificationControllerIntegrationTest {
         notificationRepository.save(failedNotification);
 
         // When & Then
-        mockMvc.perform(get("/api/notifications/stats"))
+        mockMvc.perform(get("/api/notifications/stats")
+                        .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.sent").value(1))

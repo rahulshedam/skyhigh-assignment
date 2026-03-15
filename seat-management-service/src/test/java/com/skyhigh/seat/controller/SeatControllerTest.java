@@ -22,6 +22,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import com.skyhigh.seat.exception.SeatHoldExpiredException;
 import com.skyhigh.seat.exception.SeatNotFoundException;
+import com.skyhigh.seat.model.entity.Booking;
+import com.skyhigh.seat.repository.BookingRepository;
+import java.util.Collections;
 
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
@@ -45,9 +48,13 @@ class SeatControllerTest {
         @MockitoBean
         private RateLimitAuditService rateLimitAuditService;
 
+        @MockitoBean
+        private BookingRepository bookingRepository;
+
         private SeatResponse seatResponse;
         private SeatHoldRequest holdRequest;
         private SeatConfirmRequest confirmRequest;
+        private Booking mockBooking;
 
         @BeforeEach
         void setUp() {
@@ -68,6 +75,12 @@ class SeatControllerTest {
 
                 confirmRequest = SeatConfirmRequest.builder()
                                 .passengerId("PASS123")
+                                .bookingReference("BOOK456")
+                                .build();
+
+                mockBooking = Booking.builder()
+                                .passengerId("PASS123")
+                                .passengerEmail("test@example.com")
                                 .build();
         }
 
@@ -76,9 +89,12 @@ class SeatControllerTest {
                 // Arrange
                 when(seatService.holdSeat(eq(1L), any(SeatHoldRequest.class)))
                                 .thenReturn(seatResponse);
+                when(bookingRepository.findByPassengerId("PASS123"))
+                                .thenReturn(Collections.singletonList(mockBooking));
 
                 // Act & Assert
                 mockMvc.perform(post("/api/seats/1/hold")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(holdRequest)))
                                 .andExpect(status().isCreated())
@@ -94,6 +110,7 @@ class SeatControllerTest {
 
                 // Act & Assert
                 mockMvc.perform(post("/api/seats/1/hold")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(invalidRequest)))
                                 .andExpect(status().isBadRequest());
@@ -105,9 +122,12 @@ class SeatControllerTest {
                 seatResponse.setStatus(SeatStatus.CONFIRMED);
                 when(seatService.confirmSeat(eq(1L), any(SeatConfirmRequest.class)))
                                 .thenReturn(seatResponse);
+                when(bookingRepository.findByPassengerId("PASS123"))
+                                .thenReturn(Collections.singletonList(mockBooking));
 
                 // Act & Assert
                 mockMvc.perform(post("/api/seats/1/confirm")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(confirmRequest)))
                                 .andExpect(status().isOk())
@@ -118,9 +138,12 @@ class SeatControllerTest {
         void cancelSeat_Success() throws Exception {
                 // Arrange
                 doNothing().when(seatService).cancelSeat(1L, "PASS123");
+                when(bookingRepository.findByPassengerId("PASS123"))
+                                .thenReturn(Collections.singletonList(mockBooking));
 
                 // Act & Assert
                 mockMvc.perform(delete("/api/seats/1/cancel")
+                                .header("X-User-Email", "test@example.com")
                                 .param("passengerId", "PASS123"))
                                 .andExpect(status().isNoContent());
         }
@@ -133,7 +156,8 @@ class SeatControllerTest {
                 when(seatService.getSeatStatus(1L)).thenReturn(seatResponse);
 
                 // Act & Assert
-                mockMvc.perform(get("/api/seats/1/status"))
+                mockMvc.perform(get("/api/seats/1/status")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isOk())
                                 .andExpect(jsonPath("$.id").value(1))
                                 .andExpect(jsonPath("$.status").value("AVAILABLE"))
@@ -142,21 +166,26 @@ class SeatControllerTest {
 
         @Test
         void cancelSeat_MissingPassengerId_BadRequest() throws Exception {
-                mockMvc.perform(delete("/api/seats/1/cancel"))
+                mockMvc.perform(delete("/api/seats/1/cancel")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isBadRequest())
                                 .andExpect(jsonPath("$.message").exists());
         }
 
         @Test
         void cancelSeat_BlankPassengerId_BadRequest() throws Exception {
-                mockMvc.perform(delete("/api/seats/1/cancel").param("passengerId", "   "))
+                mockMvc.perform(delete("/api/seats/1/cancel")
+                                .header("X-User-Email", "test@example.com")
+                                .param("passengerId", "   "))
                                 .andExpect(status().isBadRequest())
                                 .andExpect(jsonPath("$.message").isNotEmpty());
         }
 
         @Test
         void cancelSeat_InvalidSeatIdType_BadRequest() throws Exception {
-                mockMvc.perform(delete("/api/seats/not-a-number/cancel").param("passengerId", "PASS123"))
+                mockMvc.perform(delete("/api/seats/not-a-number/cancel")
+                                .header("X-User-Email", "test@example.com")
+                                .param("passengerId", "PASS123"))
                                 .andExpect(status().isBadRequest());
         }
 
@@ -164,8 +193,11 @@ class SeatControllerTest {
         void confirmSeat_HoldExpired_Returns409Conflict() throws Exception {
                 doThrow(new SeatHoldExpiredException("Seat hold has expired"))
                                 .when(seatService).confirmSeat(eq(1L), any(SeatConfirmRequest.class));
+                when(bookingRepository.findByPassengerId("PASS123"))
+                                .thenReturn(Collections.singletonList(mockBooking));
 
                 mockMvc.perform(post("/api/seats/1/confirm")
+                                .header("X-User-Email", "test@example.com")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(confirmRequest)))
                                 .andExpect(status().isConflict())
@@ -176,7 +208,8 @@ class SeatControllerTest {
         void getSeatStatus_SeatNotFound_Returns404() throws Exception {
                 doThrow(new SeatNotFoundException(1L)).when(seatService).getSeatStatus(1L);
 
-                mockMvc.perform(get("/api/seats/1/status"))
+                mockMvc.perform(get("/api/seats/1/status")
+                                .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isNotFound())
                                 .andExpect(jsonPath("$.message").exists());
         }

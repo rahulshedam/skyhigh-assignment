@@ -4,12 +4,12 @@ import com.skyhigh.checkin.client.BaggageServiceClient;
 import com.skyhigh.checkin.client.PaymentServiceClient;
 import com.skyhigh.checkin.client.SeatManagementClient;
 import com.skyhigh.checkin.client.dto.*;
-import com.skyhigh.checkin.exception.CheckInException;
+
 import com.skyhigh.checkin.exception.CheckInNotFoundException;
 import com.skyhigh.checkin.model.dto.CheckInResponse;
 import com.skyhigh.checkin.model.dto.CheckInStartRequest;
 import com.skyhigh.checkin.model.entity.CheckIn;
-import com.skyhigh.checkin.model.entity.CheckInHistory;
+
 import com.skyhigh.checkin.model.enums.CheckInStatus;
 import com.skyhigh.checkin.repository.CheckInHistoryRepository;
 import com.skyhigh.checkin.repository.CheckInRepository;
@@ -64,17 +64,17 @@ class CheckInServiceTest {
                                 .build();
 
                 when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
-                when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class)))
+                when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class), any()))
                                 .thenReturn(new SeatResponse(10L, "1A", "HELD", "P100", "SKY123"));
 
                 // Act
-                CheckInResponse response = checkInService.startCheckIn(request);
+                CheckInResponse response = checkInService.startCheckIn(request, "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.IN_PROGRESS, response.status());
                 assertEquals(0.0, response.baggageWeight());
                 verify(baggageClient, never()).validateBaggage(anyString(), anyString(), anyDouble());
-                verify(seatClient, never()).confirmSeat(anyLong(), any());
+                verify(seatClient, never()).confirmSeat(anyLong(), any(), any());
         }
 
         @Test
@@ -96,7 +96,7 @@ class CheckInServiceTest {
                 when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
                 when(checkinRepository.findById(1L)).thenReturn(Optional.of(checkIn)); // For completeCheckIn
 
-                when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class)))
+                when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class), any()))
                                 .thenReturn(new SeatResponse(10L, "1A", "HELD", "P100", "SKY123"));
 
                 when(baggageClient.validateBaggage(eq("P100"), eq("SKY123"), eq(15.0)))
@@ -111,11 +111,11 @@ class CheckInServiceTest {
                                 ));
 
                 // Act
-                CheckInResponse response = checkInService.startCheckIn(request);
+                CheckInResponse response = checkInService.startCheckIn(request, "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.COMPLETED, response.status());
-                verify(seatClient).confirmSeat(anyLong(), any());
+                verify(seatClient).confirmSeat(anyLong(), any(), any());
         }
 
         @Test
@@ -136,7 +136,7 @@ class CheckInServiceTest {
 
                 when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
 
-                when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class)))
+                when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class), any()))
                                 .thenReturn(new SeatResponse(10L, "1A", "HELD", "P100", "SKY123"));
 
                 when(baggageClient.validateBaggage(eq("P100"), eq("SKY123"), eq(30.0)))
@@ -151,7 +151,7 @@ class CheckInServiceTest {
                                 ));
 
                 // Act
-                CheckInResponse response = checkInService.startCheckIn(request);
+                checkInService.startCheckIn(request, "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.WAITING_FOR_PAYMENT, checkIn.getStatus());
@@ -186,12 +186,12 @@ class CheckInServiceTest {
                 when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
 
                 // Act
-                CheckInResponse response = checkInService.updateBaggage(checkinId, weight);
+                checkInService.updateBaggage(checkinId, weight, "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.COMPLETED, checkIn.getStatus());
                 assertEquals(weight, checkIn.getBaggageWeight());
-                verify(seatClient).confirmSeat(any(), any());
+                verify(seatClient).confirmSeat(any(), any(), any());
         }
 
         @Test
@@ -223,12 +223,12 @@ class CheckInServiceTest {
                                 ));
 
                 // Act
-                CheckInResponse response = checkInService.updateBaggage(checkinId, weight);
+                checkInService.updateBaggage(checkinId, weight, "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.WAITING_FOR_PAYMENT, checkIn.getStatus());
                 assertEquals(50.0, checkIn.getExcessBaggageFee());
-                verify(seatClient, never()).confirmSeat(any(), any());
+                verify(seatClient, never()).confirmSeat(any(), any(), any());
         }
 
         @Test
@@ -246,7 +246,7 @@ class CheckInServiceTest {
                 when(checkinRepository.findById(checkinId)).thenReturn(Optional.of(checkIn));
 
                 // Act
-                CheckInResponse response = checkInService.getCheckInStatus(checkinId);
+                CheckInResponse response = checkInService.getCheckInStatus(checkinId, "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.IN_PROGRESS, response.status());
@@ -260,7 +260,7 @@ class CheckInServiceTest {
                 when(checkinRepository.findById(checkinId)).thenReturn(Optional.empty());
 
                 // Act & Assert
-                assertThrows(CheckInNotFoundException.class, () -> checkInService.getCheckInStatus(checkinId));
+                assertThrows(CheckInNotFoundException.class, () -> checkInService.getCheckInStatus(checkinId, "test@example.com"));
         }
 
         @Test
@@ -279,11 +279,11 @@ class CheckInServiceTest {
                 when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
 
                 // Act
-                checkInService.cancelCheckIn(checkinId);
+                checkInService.cancelCheckIn(checkinId, "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.CANCELLED, checkIn.getStatus());
-                verify(seatClient).cancelSeat(10L, "P100");
+                verify(seatClient).cancelSeat(10L, "P100", "test@example.com");
         }
 
         @Test
@@ -303,10 +303,10 @@ class CheckInServiceTest {
                 when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
 
                 // Act
-                CheckInResponse response = checkInService.completeCheckIn(checkinId, "PAY123");
+                CheckInResponse response = checkInService.completeCheckIn(checkinId, "PAY123", "test@example.com");
 
                 // Assert
                 assertEquals(CheckInStatus.COMPLETED, response.status());
-                verify(seatClient).confirmSeat(anyLong(), any());
+                verify(seatClient).confirmSeat(anyLong(), any(), any());
         }
 }

@@ -40,6 +40,7 @@ A high-performance, microservices-based digital check-in platform for SkyHigh Ai
 - **Time-bound seat holds** – 120-second TTL with automatic expiry
 - **Waitlist management** – FIFO queue with automatic assignment
 - **Rate limiting** – Abuse and bot detection (50 requests / 2 seconds)
+- **Email OTP Authentication** – Secure 2-step login flow with backend header-based AuthZ
 - **Event-driven notifications** – Seat, payment, and baggage events via RabbitMQ
 
 ---
@@ -290,6 +291,16 @@ These run as part of the Notification Service; no extra process is needed.
 ---
 
 ## Configuration and Operation of Advanced Features
+
+### Environment & Operational Configurations
+
+- **Docker Compose:** Uses internal Docker DNS hostnames (e.g., `redis`, `rabbitmq`, `seat-management`). The Spring Boot configuration seamlessly switches to these when run via Docker, defined by environment variables in `docker-compose.yml` (e.g., `SPRING_DATASOURCE_URL=jdbc:h2:mem:seat-management-db;DB_CLOSE_DELAY=-1`, `SPRING_DATA_REDIS_HOST=redis`, `SPRING_RABBITMQ_HOST=rabbitmq`).
+- **Local Manual Run:** Defaults to `localhost` for services, Redis, and RabbitMQ. Uses file-based H2 databases (e.g., `./data/seat-management-db`) to persist data between runs.
+
+### Idempotency
+
+- All critical state-modifying operations (such as seat holds, check-in completions, and cancellations) are strictly **idempotent**.
+- If a passenger submits multiple requests to hold the same seat or cancel an existing hold, the system relies on the combination of `seatId`, `passengerId`, and `bookingReference` to recognize the duplicate request. It processes the action exactly once and returns a successful response for subsequent duplicates, preventing unintended conflicts or errors during network retries.
 
 ### Waitlist
 

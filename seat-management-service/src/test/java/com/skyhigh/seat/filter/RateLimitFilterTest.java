@@ -71,6 +71,7 @@ class RateLimitFilterTest {
     void doFilter_ExceedsLimit_Returns429() throws Exception {
         // Arrange
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(request.getRequestURI()).thenReturn("/api/seats/hold");
         StringWriter stringWriter = new StringWriter();
         PrintWriter writer = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(writer);
@@ -84,7 +85,28 @@ class RateLimitFilterTest {
         verify(filterChain, times(50)).doFilter(request, response);
         verify(response, atLeastOnce()).setStatus(429);
         verify(response, atLeastOnce()).setContentType("application/json");
-        verify(rateLimitAuditService, atLeastOnce()).recordRateLimitExceeded(eq("127.0.0.1"), any());
+        verify(rateLimitAuditService, atLeastOnce()).recordRateLimitExceeded(eq("127.0.0.1"), eq("/api/seats/hold"));
+    }
+
+    @Test
+    void doFilter_BurstRequestsFromSameIp_TriggersSingleAuditPerBurst() throws Exception {
+        // Arrange
+        when(request.getRemoteAddr()).thenReturn("10.0.0.1");
+        when(request.getRequestURI()).thenReturn("/api/seats/hold");
+        StringWriter stringWriter = new StringWriter();
+        PrintWriter writer = new PrintWriter(stringWriter);
+        when(response.getWriter()).thenReturn(writer);
+
+        // Act - send a burst well above the limit
+        for (int i = 0; i < 100; i++) {
+            rateLimitFilter.doFilter(request, response, filterChain);
+        }
+
+        // Assert: first 50 should pass through, remaining hit rate limit and audit path
+        verify(filterChain, atLeast(50)).doFilter(request, response);
+        verify(response, atLeastOnce()).setStatus(429);
+        verify(rateLimitAuditService, atLeastOnce())
+                .recordRateLimitExceeded("10.0.0.1", "/api/seats/hold");
     }
 
     @Test

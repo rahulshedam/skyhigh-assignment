@@ -1,6 +1,29 @@
 import api from './base';
 import { Seat, Checkin, Waitlist } from '../types';
 
+// Use explicit base URLs for auth-related calls that hit different services
+import axios from 'axios';
+
+const notificationApi = axios.create({ baseURL: '', timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+const seatApi = axios.create({ baseURL: '', timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+
+export const AuthService = {
+    validateEmail: async (email: string): Promise<{ valid: boolean; passengerName?: string; message: string }> => {
+        const response = await seatApi.post('/api/auth/validate-email', { email });
+        return response.data;
+    },
+    sendOtp: async (email: string): Promise<{ success: boolean; message: string }> => {
+        const response = await notificationApi.post('/api/notifications/otp/send', { email });
+        return response.data;
+    },
+    verifyOtp: async (email: string, otp: string): Promise<{ success: boolean; message: string }> => {
+        const response = await notificationApi.post('/api/notifications/otp/verify', { email, otp });
+        return response.data;
+    },
+};
+
+
+
 export const BookingService = {
     verifyBooking: async (bookingReference: string, passengerId: string): Promise<{
         flightId: number;

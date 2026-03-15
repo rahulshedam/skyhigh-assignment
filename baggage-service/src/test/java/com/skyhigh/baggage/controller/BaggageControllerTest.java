@@ -62,6 +62,7 @@ class BaggageControllerTest {
                 .thenReturn(ApiResponse.success(responseData));
 
         mockMvc.perform(post("/api/baggage/validate")
+                .header("X-User-Email", "test@example.com")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -75,6 +76,7 @@ class BaggageControllerTest {
         BaggageValidationRequest request = new BaggageValidationRequest(); // Invalid request
 
         mockMvc.perform(post("/api/baggage/validate")
+                .header("X-User-Email", "test@example.com")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
@@ -93,7 +95,8 @@ class BaggageControllerTest {
         when(baggageService.getBaggageByReference("BAG-12345678"))
                 .thenReturn(ApiResponse.success(responseData));
 
-        mockMvc.perform(get("/api/baggage/BAG-12345678"))
+        mockMvc.perform(get("/api/baggage/BAG-12345678")
+                .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.baggageReference").value("BAG-12345678"));
@@ -109,7 +112,8 @@ class BaggageControllerTest {
         when(baggageService.getBaggageByPassengerId("PASS123"))
                 .thenReturn(ApiResponse.success(Arrays.asList(data)));
 
-        mockMvc.perform(get("/api/baggage/passenger/PASS123"))
+        mockMvc.perform(get("/api/baggage/passenger/PASS123")
+                .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data").isArray());
@@ -125,7 +129,8 @@ class BaggageControllerTest {
         when(baggageService.getBaggageByBookingReference("BOOK456"))
                 .thenReturn(ApiResponse.success(Arrays.asList(data)));
 
-        mockMvc.perform(get("/api/baggage/booking/BOOK456"))
+        mockMvc.perform(get("/api/baggage/booking/BOOK456")
+                .header("X-User-Email", "test@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data").isArray());

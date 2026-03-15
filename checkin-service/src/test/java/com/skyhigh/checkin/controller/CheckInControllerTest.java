@@ -46,7 +46,7 @@ class CheckInControllerTest {
                 CheckInResponse response = new CheckInResponse(1L, "SKY123", "P100", 1L, 10L, CheckInStatus.IN_PROGRESS,
                                 0.0, 0.0, null, null, null, null);
 
-                when(checkInService.startCheckIn(any(CheckInStartRequest.class))).thenReturn(response);
+                when(checkInService.startCheckIn(any(CheckInStartRequest.class), any())).thenReturn(response);
 
                 mockMvc.perform(post("/api/checkin/start")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -61,7 +61,7 @@ class CheckInControllerTest {
                 CheckInResponse response = new CheckInResponse(checkInId, "SKY123", "P100", 1L, 10L,
                                 CheckInStatus.COMPLETED, 0.0, 0.0, null, null, null, null);
 
-                when(checkInService.getCheckInStatus(checkInId)).thenReturn(response);
+                when(checkInService.getCheckInStatus(eq(checkInId), any())).thenReturn(response);
 
                 mockMvc.perform(get("/api/checkin/{id}", checkInId))
                                 .andExpect(status().isOk())
@@ -75,7 +75,7 @@ class CheckInControllerTest {
                 CheckInResponse response = new CheckInResponse(checkInId, "SKY123", "P100", 1L, 10L,
                                 CheckInStatus.COMPLETED, 0.0, 0.0, "PAY123", null, null, null);
 
-                when(checkInService.completeCheckIn(eq(checkInId), eq("PAY123"))).thenReturn(response);
+                when(checkInService.completeCheckIn(eq(checkInId), eq("PAY123"), any())).thenReturn(response);
 
                 mockMvc.perform(post("/api/checkin/{id}/complete", checkInId)
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -91,7 +91,7 @@ class CheckInControllerTest {
                 CheckInResponse response = new CheckInResponse(checkInId, "SKY123", "P100", 1L, 10L,
                                 CheckInStatus.COMPLETED, 20.0, 0.0, null, null, null, null);
 
-                when(checkInService.updateBaggage(eq(checkInId), eq(20.0))).thenReturn(response);
+                when(checkInService.updateBaggage(eq(checkInId), eq(20.0), any())).thenReturn(response);
 
                 mockMvc.perform(post("/api/checkin/{id}/baggage", checkInId)
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -107,7 +107,7 @@ class CheckInControllerTest {
                 mockMvc.perform(post("/api/checkin/{id}/cancel", checkInId))
                                 .andExpect(status().isNoContent());
 
-                verify(checkInService).cancelCheckIn(checkInId);
+                verify(checkInService).cancelCheckIn(eq(checkInId), any());
         }
 
         @Test
@@ -115,7 +115,7 @@ class CheckInControllerTest {
                 Long checkInId = 1L;
                 CheckInCompleteRequest request = new CheckInCompleteRequest("PAY123");
 
-                when(checkInService.completeCheckIn(eq(checkInId), eq("PAY123")))
+                when(checkInService.completeCheckIn(eq(checkInId), eq("PAY123"), any()))
                                 .thenThrow(new CheckInConflictException("Seat hold has expired"));
 
                 mockMvc.perform(post("/api/checkin/{id}/complete", checkInId)

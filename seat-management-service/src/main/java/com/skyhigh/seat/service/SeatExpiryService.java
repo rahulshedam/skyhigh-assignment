@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import org.redisson.api.RLock;
 
 /**
  * Service for releasing expired seat holds.
@@ -30,6 +31,7 @@ public class SeatExpiryService {
     private final SeatHistoryRepository seatHistoryRepository;
     private final WaitlistService waitlistService;
     private final EventPublisherService eventPublisherService;
+    private final LockService lockService;
 
     /**
      * Release all expired seat holds.
@@ -71,39 +73,78 @@ public class SeatExpiryService {
      */
     private void releaseSeat(SeatAssignment assignment) {
         Long seatId = assignment.getSeatId();
+        String lockKey = "seat:lock:" + seatId;
 
-        // Update seat status to AVAILABLE
-        Seat seat = seatRepository.findById(seatId)
-                .orElseThrow(() -> new RuntimeException("Seat not found: " + seatId));
+        RLock lock = lockService.acquireLock(lockKey);
+        if (lock == null) {
+            log.warn("Skipping expiry for seat {} - could not acquire lock", seatId);
+            return;
+        }
 
-        seat.setStatus(SeatStatus.AVAILABLE);
-        seatRepository.save(seat);
-
-        // Update assignment status to CANCELLED
-        assignment.setStatus(SeatAssignmentStatus.CANCELLED);
-        seatAssignmentRepository.save(assignment);
-
-        // Record history
-        SeatHistory history = SeatHistory.builder()
-                .seatId(seatId)
-                .passengerId(assignment.getPassengerId())
-                .action("EXPIRED")
-                .details("Seat hold expired after 120 seconds")
-                .timestamp(LocalDateTime.now())
-                .build();
-        seatHistoryRepository.save(history);
-
-        log.info("Released expired seat {} held by passenger {}",
-                seatId, assignment.getPassengerId());
-
-        // Publish seat released event
-        publishSeatReleasedEvent(seat, assignment.getPassengerId(), "EXPIRED");
-
-        // Process waitlist for this seat
         try {
-            waitlistService.processWaitlistForSeat(seatId);
-        } catch (Exception e) {
-            log.error("Failed to process waitlist for seat {}: {}", seatId, e.getMessage(), e);
+            // Re-fetch the latest assignment state inside the lock to avoid races
+            SeatAssignment latestAssignment = seatAssignmentRepository.findById(assignment.getId())
+                    .orElse(null);
+            if (latestAssignment == null) {
+                log.warn("Skipping expiry for seat {} - assignment {} no longer exists", seatId, assignment.getId());
+                return;
+            }
+
+            // If the assignment is no longer HELD, another flow (confirm/cancel) already won
+            if (latestAssignment.getStatus() != SeatAssignmentStatus.HELD) {
+                log.debug("Skipping expiry for seat {} - assignment {} is now {}", seatId,
+                        latestAssignment.getId(), latestAssignment.getStatus());
+                return;
+            }
+
+            // Double-check that the hold is still expired (authoritative check)
+            LocalDateTime now = LocalDateTime.now();
+            if (latestAssignment.getExpiresAt() == null || !latestAssignment.getExpiresAt().isBefore(now)) {
+                log.debug("Skipping expiry for seat {} - hold not expired anymore (expiresAt={})",
+                        seatId, latestAssignment.getExpiresAt());
+                return;
+            }
+
+            // Update seat status to AVAILABLE, but never override a confirmed seat defensively
+            Seat seat = seatRepository.findById(seatId)
+                    .orElseThrow(() -> new RuntimeException("Seat not found: " + seatId));
+
+            if (seat.getStatus() == SeatStatus.CONFIRMED) {
+                log.info("Skipping expiry for seat {} - seat already CONFIRMED", seatId);
+                return;
+            }
+
+            seat.setStatus(SeatStatus.AVAILABLE);
+            seatRepository.save(seat);
+
+            // Update assignment status to CANCELLED
+            latestAssignment.setStatus(SeatAssignmentStatus.CANCELLED);
+            seatAssignmentRepository.save(latestAssignment);
+
+            // Record history
+            SeatHistory history = SeatHistory.builder()
+                    .seatId(seatId)
+                    .passengerId(latestAssignment.getPassengerId())
+                    .action("EXPIRED")
+                    .details("Seat hold expired after 120 seconds")
+                    .timestamp(LocalDateTime.now())
+                    .build();
+            seatHistoryRepository.save(history);
+
+            log.info("Released expired seat {} held by passenger {}",
+                    seatId, latestAssignment.getPassengerId());
+
+            // Publish seat released event
+            publishSeatReleasedEvent(seat, latestAssignment.getPassengerId(), "EXPIRED");
+
+            // Process waitlist for this seat
+            try {
+                waitlistService.processWaitlistForSeat(seatId);
+            } catch (Exception e) {
+                log.error("Failed to process waitlist for seat {}: {}", seatId, e.getMessage(), e);
+            }
+        } finally {
+            lockService.releaseLock(lock);
         }
     }
 

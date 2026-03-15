@@ -548,3 +548,89 @@ mvn clean verify -pl checkin-service
 **Assistant:**
 > Root cause: MUI `alpha()` color utility was used in `CheckinPage.tsx` but not imported. Added `import { alpha } from '@mui/material/styles'` at the top of the file. Error resolved; page renders correctly.
 
+---
+
+## 32. [Architecture Choices, Rate Limiting, and API Edge Patterns](pending-id)
+
+**User:**
+> Please list down all the tech choices we made to complete this project.
+>
+> Lets evaluate these choices if they are perfect fit for our projects. We should look for Alternatives and then we can choose which fits well for our case.
+>
+> Can you please capture these ADR on ARCHITECTURE.md. We should have proper reason on why we chose what we have currently.
+>
+> We considered Bucket4j. but is it good for distributred Servers? means if 2 conatainers on separated Ec2 will it handle correctly?
+>
+> What the difference between APIGW approach and BFF approach.
+
+**Assistant:**
+> Summarized all major tech choices (Java 21 + Spring Boot, microservices, per-service H2, Redis, RabbitMQ, React + TypeScript + Vite + Redux Toolkit + MUI, Bucket4j, Resilience4j, Docker + Docker Compose) and evaluated their fitness for the SkyHigh check-in system, including production-oriented alternatives (e.g. modular monolith vs microservices, PostgreSQL vs H2, API gateway vs purely internal rate limiting, RabbitMQ vs Kafka).
+>
+> Captured these evaluations as Architecture Decision Records (ADRs) in `ARCHITECTURE.md`, documenting decisions, alternatives considered, and rationale for: microservices vs modular monolith, Java/Spring choice, per-service H2 (dev-only), RabbitMQ, Redis, Bucket4j-based rate limiting, frontend stack, absence of an API gateway for this scope, and deliberate simplification of security for the assignment.
+>
+> Clarified that the current Bucket4j setup is **per-instance** (in-memory buckets), so with multiple containers on separate EC2 instances each has its own limit; for truly global rate limiting a shared backend (e.g. Redis/JDBC) or an edge API gateway is required.
+>
+> Explained the difference between an **API Gateway** (edge component for cross-cutting concerns like auth, TLS, global rate limiting, routing, WAF) and a **Backend for Frontend (BFF)** (client-specific orchestration layer that composes data for a particular UI such as the web check-in app), and outlined how a mature deployment would likely use both.
+
+---
+
+## 33. [Fixing Seat Service Tests](1d38b485-03b7-4282-8507-bd048a954cca)
+
+**User:**
+> The unit tests in `seat-management-service` are failing due to missing `BookingRepository` dependencies for `SeatController` and other `Unsatisfied dependency` errors.
+
+**Assistant:**
+> Resolved the dependency injection issues in the test contexts by appropriately mocking the required beans. Fixed additional test failures, including an `UnnecessaryStubbingException` in `SeatExpiryServiceTest`, ensuring all unit and integration tests for the service pass successfully.
+
+---
+
+## 34. [Updating Project Documentation for Email OTP Auth](e505721d-e60b-4239-9118-19eb05d07f60)
+
+**User:**
+> Update the project documentation to accurately reflect the newly implemented Email OTP Authentication and Authorization functionality.
+
+**Assistant:**
+> Updated all relevant documentation files (`API-SPECIFICATION.md`, `ARCHITECTURE.md`, `README.md`, and `WORKFLOW_DESIGN.md`) to include the latest changes regarding the 2-step Email OTP login flow, backend security configurations, frontend integration, and overall authentication mechanisms.
+
+---
+
+## 35. [Fixing Checkin Service Coverage](13a5b1ef-82bd-48f2-888a-64a4d509905e)
+
+**User:**
+> The checkin service coverage is currently at 68%. Please increase the test coverage to the required threshold of 70%.
+
+**Assistant:**
+> Added new unit tests in the `checkin-service` to cover previously untested branches and edge cases. Ran `mvn clean verify` to successfully confirm the overall code coverage increased past the 70% threshold.
+
+---
+
+## 36. [Adding Request Validation Rules](d4078755-eeac-4049-be01-32f1bbbf1d17)
+
+**User:**
+> Add request validation rules for critical business operations. We need to ensure that all critical business operations have robust validation in place to prevent invalid data from being processed.
+
+**Assistant:**
+> Enhanced the controller endpoints with strict request validation rules based on the API specifications. Used annotations like `@Valid` and `@NotNull` on DTOs to enforce data integrity and block invalid requests at the controller level.
+
+---
+
+## 37. [Expanding Test Coverage for Seat Management](4510af7d-071c-43ad-ae06-044bdb406f35)
+
+**User:**
+> Expand test coverage for the seat management service, specifically focusing on concurrency, race conditions, and hold expiry scenarios.
+
+**Assistant:**
+> Formulated and implemented new test cases in `SeatServiceTest.java` and `SeatExpiryServiceTest.java`. These tests thoroughly cover concurrent seat hold requests, optimistic locking conflicts, distributed locking edge cases, and hold expiration logic, significantly improving the service's reliability and code coverage.
+
+---
+
+## 38. [Improving Documentation for Advanced Behaviors](d45449aa-b5fc-4db5-959c-7f9c40ae7085)
+
+**User:**
+> Improve documentation to explain advanced system behaviors and operational configurations.
+
+**Assistant:**
+> Reviewed the existing documentation and identified gaps. Updated `README.md`, `ARCHITECTURE.md`, and `WORKFLOW_DESIGN.md` to explicitly cover:
+> - **Idempotency** in seat holds, confirmations, and cancellations to handle network retries gracefully.
+> - **Operational Configurations** distinguishing the setup for Docker Compose versus local manual runs via environment variables.
+> - Corrected details explaining the **In-memory Rate Limiting** configurations for Bucket4j.

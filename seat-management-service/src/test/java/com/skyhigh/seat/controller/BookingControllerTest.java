@@ -5,6 +5,7 @@ import com.skyhigh.seat.config.SecurityConfig;
 import com.skyhigh.seat.model.dto.BookingVerificationRequest;
 import com.skyhigh.seat.model.dto.BookingVerificationResponse;
 import com.skyhigh.seat.service.BookingService;
+import com.skyhigh.seat.service.RateLimitAuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,10 +20,9 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import org.junit.jupiter.api.Disabled;
 
-@Disabled
 @WebMvcTest(BookingController.class)
+
 @Import(SecurityConfig.class)
 class BookingControllerTest {
 
@@ -35,12 +35,15 @@ class BookingControllerTest {
     @MockitoBean
     private BookingService bookingService;
 
+    @MockitoBean
+    private RateLimitAuditService rateLimitAuditService;
+
     private BookingVerificationResponse verificationResponse;
     private BookingVerificationRequest verificationRequest;
 
     @BeforeEach
     void setUp() {
-        verificationRequest = new BookingVerificationRequest("ABC123", "john.doe@email.com");
+        verificationRequest = new BookingVerificationRequest("ABC123", "test@example.com");
         
         verificationResponse = BookingVerificationResponse.builder()
                 .flightId(101L)
@@ -48,7 +51,7 @@ class BookingControllerTest {
                 .origin("JFK")
                 .destination("LAX")
                 .bookingReference("ABC123")
-                .passengerId("john.doe@email.com")
+                .passengerId("test@example.com")
                 .valid(true)
                 .build();
     }
@@ -59,6 +62,7 @@ class BookingControllerTest {
                 .thenReturn(verificationResponse);
 
         mockMvc.perform(post("/api/bookings/verify")
+                .header("X-User-Email", "test@example.com")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(verificationRequest)))
                 .andExpect(status().isOk())
@@ -66,7 +70,7 @@ class BookingControllerTest {
                 .andExpect(jsonPath("$.flightId").value(101L))
                 .andExpect(jsonPath("$.flightNumber").value("SH101"))
                 .andExpect(jsonPath("$.bookingReference").value("ABC123"))
-                .andExpect(jsonPath("$.passengerId").value("john.doe@email.com"))
+                .andExpect(jsonPath("$.passengerId").value("test@example.com"))
                 .andExpect(jsonPath("$.valid").value(true));
     }
 
@@ -75,8 +79,10 @@ class BookingControllerTest {
         BookingVerificationRequest invalidRequest = new BookingVerificationRequest("", "");
 
         mockMvc.perform(post("/api/bookings/verify")
+                .header("X-User-Email", "test@example.com")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(invalidRequest)))
                 .andExpect(status().isBadRequest());
     }
 }
+

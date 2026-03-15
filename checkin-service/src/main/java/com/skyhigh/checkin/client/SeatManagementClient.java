@@ -9,6 +9,9 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -33,12 +36,18 @@ public class SeatManagementClient {
      * Hold a seat for a passenger
      */
     @CircuitBreaker(name = "seatManagement", fallbackMethod = "holdSeatFallback")
-    public SeatResponse holdSeat(Long seatId, SeatHoldRequest request) {
+    public SeatResponse holdSeat(Long seatId, SeatHoldRequest request, String userEmail) {
         log.info("Holding seat {} for passenger {}", seatId, request.passengerId());
 
         String url = seatServiceUrl + "/api/seats/" + seatId + "/hold";
         try {
-            ResponseEntity<SeatResponse> response = restTemplate.postForEntity(url, request, SeatResponse.class);
+            HttpHeaders headers = new HttpHeaders();
+            if (userEmail != null) {
+                headers.set("X-User-Email", userEmail);
+            }
+            HttpEntity<SeatHoldRequest> entity = new HttpEntity<>(request, headers);
+
+            ResponseEntity<SeatResponse> response = restTemplate.exchange(url, HttpMethod.POST, entity, SeatResponse.class);
             return response.getBody();
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode().value() == 409 || e.getStatusCode().value() == 400) {
@@ -48,7 +57,7 @@ public class SeatManagementClient {
         }
     }
 
-    SeatResponse holdSeatFallback(Long seatId, SeatHoldRequest request, Exception e) {
+    SeatResponse holdSeatFallback(Long seatId, SeatHoldRequest request, String userEmail, Exception e) {
         log.error("Seat Management Service unavailable for holdSeat: {}", e.getMessage());
         throw new ServiceUnavailableException("Seat Management Service is currently unavailable", e);
     }
@@ -57,12 +66,18 @@ public class SeatManagementClient {
      * Confirm a seat for a passenger
      */
     @CircuitBreaker(name = "seatManagement", fallbackMethod = "confirmSeatFallback")
-    public SeatResponse confirmSeat(Long seatId, SeatConfirmRequest request) {
+    public SeatResponse confirmSeat(Long seatId, SeatConfirmRequest request, String userEmail) {
         log.info("Confirming seat {} for passenger {}", seatId, request.passengerId());
 
         String url = seatServiceUrl + "/api/seats/" + seatId + "/confirm";
         try {
-            ResponseEntity<SeatResponse> response = restTemplate.postForEntity(url, request, SeatResponse.class);
+            HttpHeaders headers = new HttpHeaders();
+            if (userEmail != null) {
+                headers.set("X-User-Email", userEmail);
+            }
+            HttpEntity<SeatConfirmRequest> entity = new HttpEntity<>(request, headers);
+
+            ResponseEntity<SeatResponse> response = restTemplate.exchange(url, HttpMethod.POST, entity, SeatResponse.class);
             return response.getBody();
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode().value() == 409 || e.getStatusCode().value() == 400) {
@@ -72,7 +87,7 @@ public class SeatManagementClient {
         }
     }
 
-    SeatResponse confirmSeatFallback(Long seatId, SeatConfirmRequest request, Exception e) {
+    SeatResponse confirmSeatFallback(Long seatId, SeatConfirmRequest request, String userEmail, Exception e) {
         log.error("Seat Management Service unavailable for confirmSeat: {}", e.getMessage());
         throw new ServiceUnavailableException("Seat Management Service is currently unavailable", e);
     }
@@ -81,14 +96,19 @@ public class SeatManagementClient {
      * Cancel a seat hold
      */
     @CircuitBreaker(name = "seatManagement", fallbackMethod = "cancelSeatFallback")
-    public void cancelSeat(Long seatId, String passengerId) {
+    public void cancelSeat(Long seatId, String passengerId, String userEmail) {
         log.info("Cancelling seat {} for passenger {}", seatId, passengerId);
 
         String url = seatServiceUrl + "/api/seats/" + seatId + "/cancel?passengerId=" + passengerId;
-        restTemplate.delete(url);
+        HttpHeaders headers = new HttpHeaders();
+        if (userEmail != null) {
+            headers.set("X-User-Email", userEmail);
+        }
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        restTemplate.exchange(url, HttpMethod.DELETE, entity, Void.class);
     }
 
-    private void cancelSeatFallback(Long seatId, String passengerId, Exception e) {
+    void cancelSeatFallback(Long seatId, String passengerId, String userEmail, Exception e) {
         log.error("Seat Management Service unavailable for cancelSeat: {}", e.getMessage());
         // Don't throw exception for cancel - best effort
     }
