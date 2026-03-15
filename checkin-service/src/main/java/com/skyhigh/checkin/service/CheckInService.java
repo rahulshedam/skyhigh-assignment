@@ -115,6 +115,14 @@ public class CheckInService {
             log.info("Check-in started with no baggage. Waiting for baggage details.");
             return toResponse(checkIn, "Check-in started. Waiting for baggage details.");
 
+        } catch (com.skyhigh.checkin.exception.CheckInConflictException e) {
+            // Seat conflict (409) — seat was never held, so no rollback needed; propagate as-is
+            log.error("Check-in failed due to seat conflict: {}", e.getMessage());
+            checkIn.setStatus(CheckInStatus.CANCELLED);
+            checkinRepository.save(checkIn);
+            recordHistory(checkIn, CheckInStatus.CANCELLED, "CHECK_IN_FAILED",
+                    "Seat conflict: " + e.getMessage());
+            throw e;
         } catch (Exception e) {
             log.error("Check-in failed: {}", e.getMessage(), e);
 

@@ -634,3 +634,19 @@ mvn clean verify -pl checkin-service
 > - **Idempotency** in seat holds, confirmations, and cancellations to handle network retries gracefully.
 > - **Operational Configurations** distinguishing the setup for Docker Compose versus local manual runs via environment variables.
 > - Corrected details explaining the **In-memory Rate Limiting** configurations for Bucket4j.
+
+---
+
+## 39. [Architectural Evaluation: Seat Conflict, Expiry, and Waitlist](2fa67842-3fc8-41b9-9e67-a84dba1c013b)
+
+**User:**
+> Lets evaluate Seat conflict handling approaches.
+> Lets evaluate seat hold expiration strategy.
+> Lets evaluate our waitlist strategy.
+
+**Assistant:**
+> Conducted a deep dive into the core architectural patterns of the seat management service:
+> - **Conflict Handling**: Evaluated the "Defense in Depth" strategy (Redisson Distributed Locks + Hibernate Optimistic Locking). Identified a bug in the `SeatAssignment` unique constraint `{seat_id, status}` that prevents multiple cancellations over a seat's lifecycle.
+> - **Expiration Strategy**: Analyzed the 10-second polling cleanup mechanism. Identified risks related to scheduler clustering in multi-instance environments and recommended distributed scheduler locking (e.g., ShedLock).
+> - **Waitlist Strategy**: Validated the FIFO ordering and hybrid trigger mechanism (immediate + periodic). Identified that the 120-second hold TTL is likely too short for waitlisted passengers receiving email notifications.
+> - **Plan**: Created three evaluation artifacts and a formal implementation plan to fix the identified unique constraint bug and further harden the service concurrency.

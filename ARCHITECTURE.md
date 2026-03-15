@@ -160,8 +160,7 @@ SkyHigh Core is a high-performance, distributed backend system built using **mic
 - Handle check-in cancellations
 - Maintain check-in history
 - Subscribe to: `SeatConfirmedEvent`, `PaymentCompletedEvent`
-- **Payment pause/resume:** When excess baggage is required, check-in pauses at `WAITING_FOR_PAYMENT`; the client pays via Payment Service and resumes by calling complete with the payment reference (see WORKFLOW_DESIGN.md).
-
+- **Explicit Payment pause/resume:** When excess baggage is required, check-in pauses at an explicit `WAITING_FOR_PAYMENT` state; the client pays via Payment Service and resumes by calling complete with the payment reference (see WORKFLOW_DESIGN.md).
 **Key APIs**:
 - `POST /api/checkin/start` - Start check-in process
 - `GET /api/checkin/{checkinId}` - Get check-in status
@@ -782,9 +781,22 @@ LIMIT 100;
 
 - **Scope**: All seat APIs (`/api/seats/*`)
 - **Limit**: 50 requests per 2 seconds per IP
-- **Response**: HTTP 429 (Too Many Requests) when exceeded
+- **Response**: HTTP 429 (Too Many Requests) with a JSON error payload (see API-SPECIFICATION.md)
 
-### 11.3 Filter Implementation
+### 11.3 Abuse Detection Strategy & Operational Visibility
+
+To ensure abusive traffic is not only blocked but also trackable for operational security, the system employs an integrated **Abuse Detection Strategy**:
+
+1.  **Immediate Rejection**: Requests exceeding the 50/2s threshold are rejected with HTTP 429, preventing upstream resource exhaustion.
+2.  **Audit Trail (Operational Visibility)**: Every rate-limit violation is persisted to the `rate_limit_audit` table. This provides a high-fidelity audit trail of abusive IP addresses and targeted endpoints.
+3.  **Audit Schema**:
+    - `client_ip`: Source of the traffic.
+    - `request_uri`: Targeted API endpoint.
+    - `action`: Set to `RATE_LIMIT_EXCEEDED`.
+    - `created_at`: Precise timestamp of the violation.
+4.  **Logging**: A `WARN` level log is emitted for every violation, allowing real-time monitoring via log aggregation tools.
+
+### 11.4 Filter Implementation
 
 ```java
 @Component
@@ -815,7 +827,7 @@ public class RateLimitFilter implements Filter {
 
 *Note: Abuse detection with blocking (e.g. 5-minute block on threshold exceed) is not implemented in the current scope.*
 
-**Audit of rate-limit events (abuse detection):** When the rate limit is exceeded, a WARN is logged and an audit record is written to the `rate_limit_audit` table (client IP, path, timestamp). This supports abuse analysis and monitoring; admins can query repeated violations per IP. The Seat Management Service implements this via `RateLimitFilter` and `RateLimitAuditService`.
+*Note: Abuse detection with blocking (e.g. 5-minute block on threshold exceed) is not implemented in the current scope.*
 
 ### 11.4 Waitlist Management (Advanced Feature)
 

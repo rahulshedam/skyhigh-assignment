@@ -41,6 +41,7 @@ A high-performance, microservices-based digital check-in platform for SkyHigh Ai
 - **Waitlist management** – FIFO queue with automatic assignment
 - **Rate limiting** – Abuse and bot detection (50 requests / 2 seconds)
 - **Email OTP Authentication** – Secure 2-step login flow with backend header-based AuthZ
+- **Explicit payment state management** – Workflow pauses for excess baggage and resumes only after payment verification
 - **Event-driven notifications** – Seat, payment, and baggage events via RabbitMQ
 
 ---
@@ -312,8 +313,8 @@ These run as part of the Notification Service; no extra process is needed.
 ### Abuse detection / rate limiting
 
 - **Where:** Seat Management Service only (all `/api/seats/*` and related endpoints).
-- **Limit:** 50 requests per 2 seconds per IP (Bucket4j). Response: HTTP 429 Too Many Requests.
-- **Observation:** Rate-limit violations are logged (WARN); audit records can be written to `rate_limit_audit` (see ARCHITECTURE.md). Supports abuse/bot detection analysis.
+- **Limit:** 50 requests per 2 seconds per IP (Bucket4j). Response: HTTP 429 Too Many Requests with JSON error payload.
+- **Operational Visibility:** All rate-limit violations are logged (WARN) and audited to the `rate_limit_audit` table (IP, path, timestamp), enabling clear abuse detection and operational analysis.
 
 ### Logging and observability
 

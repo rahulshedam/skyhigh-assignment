@@ -32,6 +32,12 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    @ExceptionHandler(SeatConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleSeatConflictException(SeatConflictException ex) {
+        log.error("Seat conflict: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(SeatHoldExpiredException.class)
     public ResponseEntity<Map<String, Object>> handleSeatHoldExpiredException(SeatHoldExpiredException ex) {
         log.error("Seat hold expired: {}", ex.getMessage());

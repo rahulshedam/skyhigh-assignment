@@ -92,7 +92,7 @@ Most services require the `X-User-Email` header for authenticated requests. This
 
 ## 3. Check-in Service
 
-The check-in flow supports **pause for payment** when excess baggage is required (weight > 25 kg). In that case the status becomes `WAITING_FOR_PAYMENT`; the client processes payment via the Payment Service and then **resumes** by calling the complete endpoint with the payment reference.
+The check-in flow supports an **explicit pause for payment** when excess baggage is required (weight > 25 kg). In that case the status becomes `WAITING_FOR_PAYMENT`; the client processes payment via the Payment Service and then **resumes** by calling the complete endpoint with the payment reference. Seat holds are subject to **Guaranteed Automatic Release** as detailed in ARCHITECTURE.md.
 
 | Method | Endpoint | Description | HTTP Status Codes |
 |--------|----------|-------------|-------------------|
@@ -204,7 +204,17 @@ Primarily used for validation failures, routing issues, and fallback unhandled e
 }
 ```
 
-#### 2. Standard API Response Wrapper
+#### 2. Rate Limit Error Format (429)
+The Seat Management Service returns a concise error payload when the rate limit (50 requests / 2s) is exceeded.
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Rate limit exceeded. Please try again later."
+}
+```
+
+#### 3. Standard API Response Wrapper
 Certain services (like Baggage and Payment), leveraging the `common` module, return a consistent `ApiResponse` wrapper payload that strictly encapsulates errors within the `error` object.
 
 ```json

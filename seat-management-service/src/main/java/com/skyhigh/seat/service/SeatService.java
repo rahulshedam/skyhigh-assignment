@@ -1,6 +1,7 @@
 package com.skyhigh.seat.service;
 
 import com.skyhigh.seat.exception.SeatAlreadyHeldException;
+import com.skyhigh.seat.exception.SeatConflictException;
 import com.skyhigh.seat.exception.SeatHoldExpiredException;
 import com.skyhigh.seat.exception.SeatNotFoundException;
 import com.skyhigh.seat.exception.SeatUnavailableException;
@@ -41,6 +42,7 @@ public class SeatService {
     private final SeatHistoryRepository seatHistoryRepository;
     private final LockService lockService;
     private final EventPublisherService eventPublisherService;
+    private final WaitlistService waitlistService;
 
     @Value("${seat.hold.ttl-seconds:120}")
     private int holdDurationSeconds;
@@ -141,7 +143,7 @@ public class SeatService {
 
             // Verify passenger
             if (!assignment.getPassengerId().equals(request.getPassengerId())) {
-                throw new SeatUnavailableException("Seat is held by a different passenger");
+                throw new SeatConflictException("Seat is held by a different passenger");
             }
 
             // Fail-safe: reject confirm if hold has expired (authoritative check even if scheduler was delayed)
@@ -201,7 +203,7 @@ public class SeatService {
 
             // Verify passenger
             if (!assignment.getPassengerId().equals(passengerId)) {
-                throw new SeatUnavailableException("Seat is assigned to a different passenger");
+                throw new SeatConflictException("Seat is assigned to a different passenger");
             }
 
             // Release seat
@@ -219,6 +221,13 @@ public class SeatService {
 
             // Publish seat released event
             publishSeatReleasedEvent(seat, passengerId, "CANCELLED");
+
+            // Process waitlist for this seat so the next waiting passenger is notified immediately
+            try {
+                waitlistService.processWaitlistForSeat(seatId);
+            } catch (Exception e) {
+                log.error("Failed to process waitlist for seat {} after cancel: {}", seatId, e.getMessage(), e);
+            }
 
         } finally {
             lockService.releaseLock(lock);

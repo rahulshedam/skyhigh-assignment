@@ -1,6 +1,7 @@
 package com.skyhigh.seat.service;
 
 import com.skyhigh.seat.exception.SeatAlreadyHeldException;
+import com.skyhigh.seat.exception.SeatConflictException;
 import com.skyhigh.seat.exception.SeatHoldExpiredException;
 import com.skyhigh.seat.exception.SeatNotFoundException;
 import com.skyhigh.seat.exception.SeatUnavailableException;
@@ -54,6 +55,9 @@ class SeatServiceTest {
 
     @Mock
     private EventPublisherService eventPublisherService;
+
+    @Mock
+    private WaitlistService waitlistService;
 
     @Mock
     private RLock lock;
@@ -221,7 +225,7 @@ class SeatServiceTest {
                 .thenReturn(Optional.of(assignment));
 
         // Act & Assert
-        assertThrows(SeatUnavailableException.class, () -> seatService.confirmSeat(1L, confirmRequest));
+        assertThrows(SeatConflictException.class, () -> seatService.confirmSeat(1L, confirmRequest));
         verify(lockService).releaseLock(lock);
     }
 
@@ -349,7 +353,7 @@ class SeatServiceTest {
         when(seatAssignmentRepository.findBySeatId(1L)).thenReturn(Optional.of(assignment));
 
         // Act & Assert
-        assertThrows(SeatUnavailableException.class, () -> seatService.cancelSeat(1L, "PASS123"));
+        assertThrows(SeatConflictException.class, () -> seatService.cancelSeat(1L, "PASS123"));
         verify(lockService).releaseLock(lock);
         verify(seatRepository, never()).save(any(Seat.class));
     }
@@ -567,5 +571,28 @@ class SeatServiceTest {
         // Assert
         assertEquals(1, successCount.get(), "Only one thread should successfully cancel the seat");
         assertEquals(numThreads - 1, failureCount.get(), "Other threads should fail to acquire lock");
+    }
+
+    @Test
+    void cancelSeat_TriggersWaitlistProcessing() {
+        // Arrange
+        SeatAssignment assignment = SeatAssignment.builder()
+                .seatId(1L)
+                .passengerId("PASS123")
+                .status(SeatAssignmentStatus.CONFIRMED)
+                .build();
+
+        when(lockService.acquireLock(anyString())).thenReturn(lock);
+        when(seatRepository.findById(1L)).thenReturn(Optional.of(testSeat));
+        when(seatAssignmentRepository.findBySeatId(1L)).thenReturn(Optional.of(assignment));
+        when(seatRepository.save(any(Seat.class))).thenReturn(testSeat);
+        when(seatAssignmentRepository.save(any(SeatAssignment.class))).thenReturn(assignment);
+        doNothing().when(waitlistService).processWaitlistForSeat(1L);
+
+        // Act
+        seatService.cancelSeat(1L, "PASS123");
+
+        // Assert: waitlist must be processed immediately after a manual cancel
+        verify(waitlistService).processWaitlistForSeat(1L);
     }
 }

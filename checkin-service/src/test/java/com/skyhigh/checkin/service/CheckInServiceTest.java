@@ -5,6 +5,7 @@ import com.skyhigh.checkin.client.PaymentServiceClient;
 import com.skyhigh.checkin.client.SeatManagementClient;
 import com.skyhigh.checkin.client.dto.*;
 
+import com.skyhigh.checkin.exception.CheckInConflictException;
 import com.skyhigh.checkin.exception.CheckInNotFoundException;
 import com.skyhigh.checkin.model.dto.CheckInResponse;
 import com.skyhigh.checkin.model.dto.CheckInStartRequest;
@@ -89,12 +90,12 @@ class CheckInServiceTest {
                                 .passengerId("P100")
                                 .flightId(1L)
                                 .seatId(10L)
-                                .status(CheckInStatus.IN_PROGRESS) // Initially
+                                .status(CheckInStatus.IN_PROGRESS)
                                 .baggageWeight(15.0)
                                 .build();
 
                 when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
-                when(checkinRepository.findById(1L)).thenReturn(Optional.of(checkIn)); // For completeCheckIn
+                when(checkinRepository.findById(1L)).thenReturn(Optional.of(checkIn));
 
                 when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class), any()))
                                 .thenReturn(new SeatResponse(10L, "1A", "HELD", "P100", "SKY123"));
@@ -260,7 +261,8 @@ class CheckInServiceTest {
                 when(checkinRepository.findById(checkinId)).thenReturn(Optional.empty());
 
                 // Act & Assert
-                assertThrows(CheckInNotFoundException.class, () -> checkInService.getCheckInStatus(checkinId, "test@example.com"));
+                assertThrows(CheckInNotFoundException.class,
+                                () -> checkInService.getCheckInStatus(checkinId, "test@example.com"));
         }
 
         @Test
@@ -308,5 +310,34 @@ class CheckInServiceTest {
                 // Assert
                 assertEquals(CheckInStatus.COMPLETED, response.status());
                 verify(seatClient).confirmSeat(anyLong(), any(), any());
+        }
+
+        @Test
+        void startCheckIn_SeatConflict_PropagatesCheckInConflictException() {
+                // When holdSeat throws CheckInConflictException (409 from seat-management),
+                // CheckInService must NOT swallow it as a generic 400 CheckInException.
+                CheckInStartRequest request = new CheckInStartRequest(
+                                "SKY123", "P100", 1L, 10L, null);
+
+                CheckIn checkIn = CheckIn.builder()
+                                .id(1L)
+                                .bookingReference("SKY123")
+                                .passengerId("P100")
+                                .flightId(1L)
+                                .seatId(10L)
+                                .status(CheckInStatus.IN_PROGRESS)
+                                .baggageWeight(0.0)
+                                .build();
+
+                when(checkinRepository.save(any(CheckIn.class))).thenReturn(checkIn);
+                when(seatClient.holdSeat(anyLong(), any(SeatHoldRequest.class), any()))
+                                .thenThrow(new CheckInConflictException("Seat is already held by another passenger"));
+
+                // Assert: CheckInConflictException (409) propagates — NOT wrapped as CheckInException (400)
+                assertThrows(CheckInConflictException.class,
+                                () -> checkInService.startCheckIn(request, "test@example.com"));
+
+                // Seat cancel should NOT be called (nothing was held successfully)
+                verify(seatClient, never()).cancelSeat(anyLong(), anyString(), anyString());
         }
 }

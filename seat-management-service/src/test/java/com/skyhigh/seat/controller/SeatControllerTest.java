@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import com.skyhigh.seat.exception.SeatHoldExpiredException;
 import com.skyhigh.seat.exception.SeatNotFoundException;
+import com.skyhigh.seat.exception.SeatConflictException;
 import com.skyhigh.seat.model.entity.Booking;
 import com.skyhigh.seat.repository.BookingRepository;
 import java.util.Collections;
@@ -212,5 +213,21 @@ class SeatControllerTest {
                                 .header("X-User-Email", "test@example.com"))
                                 .andExpect(status().isNotFound())
                                 .andExpect(jsonPath("$.message").exists());
+        }
+
+        @Test
+        void confirmSeat_WrongPassenger_Returns409Conflict() throws Exception {
+                // When PASS123 tries to confirm a seat held by another passenger, service throws SeatConflictException
+                doThrow(new SeatConflictException("Seat is held by a different passenger"))
+                                .when(seatService).confirmSeat(eq(1L), any(SeatConfirmRequest.class));
+                when(bookingRepository.findByPassengerId("PASS123"))
+                                .thenReturn(Collections.singletonList(mockBooking));
+
+                mockMvc.perform(post("/api/seats/1/confirm")
+                                .header("X-User-Email", "test@example.com")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(confirmRequest)))
+                                .andExpect(status().isConflict())
+                                .andExpect(jsonPath("$.message").value("Seat is held by a different passenger"));
         }
 }

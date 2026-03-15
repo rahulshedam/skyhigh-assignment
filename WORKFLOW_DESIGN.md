@@ -263,7 +263,7 @@ If Passenger A successfully holds `12A` and submits another `POST /hold 12A` req
          │  [verifies payment]   │                       │
 ```
 
-### 2.5.1 Payment Pause/Resume Flow
+### 2.5.1 Explicit Payment Pause/Resume Flow
 
 When baggage weight exceeds 25 kg, check-in **pauses** at status `WAITING_FOR_PAYMENT`:
 
@@ -272,7 +272,7 @@ When baggage weight exceeds 25 kg, check-in **pauses** at status `WAITING_FOR_PA
 3. **Resume:** The client processes payment via Payment Service (`POST /api/payments/process`), then calls `POST /api/checkin/{checkinId}/complete` with the request body `{ "paymentId": "<payment_reference>" }`. Check-in Service records the payment reference, confirms the seat with Seat Management, and sets status to `COMPLETED`.
 4. **Verification:** Payment is processed and validated by Payment Service. Check-in Service requires a **non-empty `paymentId` when an excess fee is present** and records that reference; it does **not** recompute the fee amount at completion time (the excess fee was already determined at pause time).
 
-### 2.5.2 Check-in State Machine for Payment-Dependent Operations
+### 2.5.2 Explicit State Machine for Payment-Dependent Operations
 
 The **check-in workflow states** for baggage and payment are:
 
@@ -556,6 +556,14 @@ checkin_id | fromStatus         | toStatus            | action              | ti
     - Publish `SeatReleasedEvent`
   - If the seat is already `CONFIRMED` or the assignment is no longer `HELD`, the expiry job **skips** that record (no-op), ensuring it never overwrites a confirmed seat.
 - **Waitlist**: `WaitlistProcessorScheduler` runs every 5 seconds, assigns seat to first waiting passenger
+
+### 5.2.1 Guaranteed Release (Fail-safe Mechanisms)
+
+To ensure seat release is guaranteed even in the event of system delays or process failures, the system employs a dual-layered fail-safe:
+
+1.  **Authoritative Check (Confirm-time)**: Every `confirmSeat` request performs a real-time expiry check against the current system time. If the hold has expired, the request is rejected with a `409 Conflict`, regardless of whether the background scheduler has processed it yet.
+2.  **Defensive Overwrite Protection**: The `SeatExpiryService` verifies that the seat is NOT already in `CONFIRMED` status before reverting it to `AVAILABLE`, preventing the background process from accidentally releasing a successfully confirmed seat if a race condition occurs.
+3.  **Idempotent State-checks**: All expiry processing happens inside a dedicated Redis lock (`seat:lock:{id}`), and the state is re-validated within the lock to ensure consistency.
 
 ### 5.3 Baggage and Payment Rules
 
